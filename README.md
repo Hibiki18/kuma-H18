@@ -53,6 +53,6 @@ kuma 与《艦隊これくしょん -艦これ-》的运营方无关，也未获
 那里没有的，两个地方都能说：
 
 - [GitHub Issues](https://github.com/zhangkanbbc-code/kuma/issues)
-- 贴吧发布贴的反馈楼（链接见发布贴）
+- [贴吧发布帖的反馈楼](https://tieba.baidu.com/p/10979627209)
 
 想看代码或者自己构建，见 [开发指南](docs/开发指南.md)
