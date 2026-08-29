@@ -20,7 +20,19 @@ import { initPreviewBar } from './preview-bar'
 import { initLink } from './link'
 import { initCommandPalette } from './command-palette'
 import { initLocalization } from './localization'
-import { initModules, isModuleShowing, launchGlowLayout, setLayoutDragHooks, toggleFocus } from './mu'
+import {
+  initModules,
+  isModuleShowing,
+  launchGlowLayout,
+  setFocus,
+  setGameDetachedLayout,
+  toggleFocus,
+} from './mu'
+import {
+  executeGameCommand,
+  initGameWindowClient,
+  scheduleEmbeddedGameBounds,
+} from './game-window-client'
 import {
   armLaunchGlow,
   armLaunchWelcome,
@@ -62,27 +74,12 @@ import './modules/mgstate'
 import './modules/anchor'
 
 const remote = require('@electron/remote')
-const fs = require('fs')
-const path = require('path')
-const { pathToFileURL } = require('url')
-
 const broadcaster = remote.require('./game-api-broadcaster')
 const config = remote.require('./config')
 initVoiceSubtitles(broadcaster)
 
-const APP_ROOT: string = remote.getGlobal('ROOT')
-const SCREENSHOT_PATH: string = remote.getGlobal('DEFAULT_SCREENSHOT_PATH')
-
 installEquipIconFallback()
 installEntityArtFallback()
-
-const PRELOAD_URL = pathToFileURL(
-  path.join(APP_ROOT, 'assets', 'preload', 'webview-preload.js'),
-).href
-const GAME_WIDTH = 1200
-
-// UA 清洗：去掉 Electron / kanso 标记（poi 同款手法）
-const USER_AGENT = navigator.userAgent.replace(/Electron[^ ]* /, '').replace(/kanso[^ ]* /, '')
 
 const $ = <T extends HTMLElement>(selector: string): T => {
   const el = document.querySelector<T>(selector)
@@ -90,116 +87,12 @@ const $ = <T extends HTMLElement>(selector: string): T => {
   return el
 }
 
-// ---- 游戏 webview ----
-type WebviewTag = Electron.WebviewTag
-
-const gameWrapper = $('#game-wrapper')
-let webview: WebviewTag | null = null
-let webviewReady = false
-
-const applyZoom = () => {
-  if (!webview || !webviewReady) return
-  const { width } = gameWrapper.getBoundingClientRect()
-  if (width <= 0) return
-  // 乘 UI 缩放：rect 是渲染层 CSS px，webview 的实际物理尺寸还要再乘一次页面缩放
-  const factor = Math.round(((width * getUiZoom()) / GAME_WIDTH) * 100000) / 100000
-  try {
-    webview.setZoomFactor(factor)
-    webview.executeJavaScript('window.align && window.align()').catch(() => {})
-  } catch (_e) {
-    /* webview not attached yet */
-  }
-}
-
-// setZoomFactor 是跨进程同步调用，连续 resize 时每帧都打非常卡——120ms 防抖
-let zoomTimer: ReturnType<typeof setTimeout> | null = null
-const applyZoomDebounced = () => {
-  if (zoomTimer) clearTimeout(zoomTimer)
-  zoomTimer = setTimeout(applyZoom, 120)
-}
-
-const overlay = $('#game-overlay')
-const overlayTitle = $('#overlay-title')
-const overlayDetail = $('#overlay-detail')
-
-const showLoadError = (code: number, description: string, url: string) => {
-  overlayTitle.textContent = '游戏页面加载失败'
-  overlayDetail.textContent =
-    `${description} (${code})\n${url}\n\n` +
-    `要走代理的话，在「设置 · 代理」里配置后点重试。`
-  overlayDetail.style.whiteSpace = 'pre-wrap'
-  overlay.classList.add('visible')
-}
-
-const hideLoadError = () => {
-  overlay.classList.remove('visible')
-}
-
-const createGameView = () => {
-  webviewReady = false
-  const view = document.createElement('webview') as WebviewTag
-  // 参数组合的讲究（原版注释）：contextIsolation 让页面主世界回归标准
-  // web 安全，会挡掉缓存资源换入与跨源 iframe 遍历（截图），所以配
-  // disablewebsecurity 维持旧行为；隔离世界仍把 Node/remote 挡在游戏页之外。
-  view.setAttribute('allowpopups', '')
-  view.setAttribute('nodeintegrationinsubframes', '')
-  view.setAttribute('disablewebsecurity', '')
-  view.setAttribute(
-    'webpreferences',
-    'allowRunningInsecureContent=no, backgroundThrottling=no, contextIsolation=yes, sandbox=no, nodeIntegrationInSubFrames=yes',
-  )
-  view.setAttribute('preload', PRELOAD_URL)
-  view.setAttribute('useragent', USER_AGENT)
-  view.src = config.get('kanso.homepage')
-
-  view.addEventListener('dom-ready', () => {
-    webviewReady = true
-    hideLoadError()
-    applyZoom()
-  })
-  view.addEventListener('did-fail-load', (e) => {
-    // -3 = ERR_ABORTED（正常跳转打断），忽略
-    if (e.isMainFrame && e.errorCode !== -3) {
-      showLoadError(e.errorCode, e.errorDescription, e.validatedURL)
-    }
-  })
-  // 渲染进程崩溃 → 原地重挂（poi 同款自愈）
-  view.addEventListener('render-process-gone' as any, () => {
-    console.warn('[kanso] game webview crashed, remounting')
-    view.remove()
-    webview = createGameView()
-  })
-  gameWrapper.appendChild(view)
-  return view
-}
-
-$('#btn-retry').addEventListener('click', () => {
-  hideLoadError()
-  webview?.reload()
-})
-
-webview = createGameView()
-new ResizeObserver(() => applyZoomDebounced()).observe(gameWrapper)
-
 // ---- 头部按钮 ----
 $('#btn-reload').addEventListener('click', () => {
-  webview?.reload()
+  void executeGameCommand({ type: 'reload' })
 })
-$('#btn-capture').addEventListener('click', async () => {
-  if (!webview) return
-  try {
-    const dataUrl: string | undefined = await webview.executeJavaScript('window.capture()')
-    if (!dataUrl) {
-      console.warn('[kanso] capture returned nothing (game canvas not found?)')
-      return
-    }
-    fs.mkdirSync(SCREENSHOT_PATH, { recursive: true })
-    const file = path.join(SCREENSHOT_PATH, `kanso-${Date.now()}.png`)
-    fs.writeFileSync(file, Buffer.from(dataUrl.split(',')[1], 'base64'))
-    console.log('[kanso] screenshot saved:', file)
-  } catch (e) {
-    console.error('[kanso] capture failed', e)
-  }
+$('#btn-capture').addEventListener('click', () => {
+  void executeGameCommand({ type: 'capture' })
 })
 
 // ---- 服务器识别 ----
@@ -289,36 +182,8 @@ if (validGameHost(initialServer?.ip)) {
   config.set('kanso.lastGameHost', initialServer.ip)
 }
 
-// ---- 坞位分隔条：拖动时游戏区冻结缩放 ----
-// 绕开 webview 的跨进程 resize：拖动期间把游戏 wrapper 冻结为定尺寸
-// （webview 布局盒不变 → 游戏进程零重排），画面用 CSS transform 缩放
-// （纯 GPU 合成，每帧顺滑），坞位布局实时跟手；松手恢复流式布局 +
-// 一次真正的 setZoomFactor 恢复清晰度与点击坐标。
-// 铆负责算尺寸，这里只管游戏区的冻结/缩放/复原。
-const gameArea = $('#game-area')
-let frozen: DOMRect | null = null
-setLayoutDragHooks({
-  start: () => {
-    frozen = gameWrapper.getBoundingClientRect()
-    gameWrapper.style.width = `${frozen.width}px`
-    gameWrapper.style.transformOrigin = 'center center'
-  },
-  move: () => {
-    if (!frozen || frozen.width <= 0) return
-    const area = gameArea.getBoundingClientRect()
-    const scale = Math.min(area.width / frozen.width, area.height / frozen.height)
-    gameWrapper.style.transform = `scale(${scale})`
-  },
-  end: () => {
-    frozen = null
-    gameWrapper.style.transform = ''
-    gameWrapper.style.width = ''
-    applyZoom() // 立即执行一次真缩放，画面恢复清晰
-  },
-})
-
 // ---- 专注模式（三坞全收，只留游戏）----
-const focusBtn = $('#btn-focus')
+const focusBtn = $<HTMLButtonElement>('#btn-focus')
 const syncFocusBtn = (on: boolean) => {
   focusBtn.textContent = on ? '退出专注' : '专注'
 }
@@ -326,6 +191,7 @@ focusBtn.addEventListener('click', () => syncFocusBtn(toggleFocus()))
 document.addEventListener('keydown', (e) => {
   if (e.key === 'F9') {
     e.preventDefault()
+    if (focusBtn.disabled) return
     syncFocusBtn(toggleFocus())
     return
   }
@@ -341,7 +207,16 @@ document.addEventListener('keydown', (e) => {
     setUiZoom(1.15)
   }
 })
-onUiZoom(() => applyZoomDebounced())
+onUiZoom(() => scheduleEmbeddedGameBounds())
+initGameWindowClient(() => {
+  if (setFocus(false)) syncFocusBtn(false)
+  focusBtn.disabled = true
+})
+document.addEventListener('kanso:game-window-state', ((event: CustomEvent) => {
+  const detached = event.detail?.effectiveMode === 'detached' && event.detail?.phase !== 'ATTACHING'
+  setGameDetachedLayout(detached)
+  focusBtn.disabled = detached || event.detail?.phase === 'DETACHING'
+}) as EventListener)
 
 // ---- 启动点亮（测试性功能，钥里默认关）----
 // **在这里就罩暗**，而不是等模块装完：游戏 webview 在本文件顶部就已经开始加载，
@@ -609,6 +484,10 @@ const startupFailed = (stage: string, error: unknown) => {
   welcome?.cancel()
   recordCrash(`startup:${stage}`, error)
   const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  const overlay = document.querySelector<HTMLElement>('#startup-overlay')
+  if (!overlay) return
+  const overlayTitle = overlay.querySelector<HTMLElement>('.overlay-title')!
+  const overlayDetail = overlay.querySelector<HTMLElement>('.overlay-detail')!
   overlayTitle.textContent = `启动失败：${stage}`
   overlayDetail.textContent = '游戏画面不受影响 · 修好后重启 kuma'
   overlayDetail.style.whiteSpace = 'pre-wrap'
@@ -688,7 +567,7 @@ void (async () => {
   // 这一步从前是裸调的。它就排在点亮仪式前面，抛出来的话整个 IIFE 静默 reject，
   // 仪式态就永远挂着（游戏区盖着黑罩、编队行隐身）——比缩放没校准严重得多。
   try {
-    applyZoom() // 坞位布局恢复后校一次缩放
+    scheduleEmbeddedGameBounds()
   } catch (error) {
     recordCrash('startup:apply-zoom', error)
   }
@@ -704,8 +583,16 @@ void (async () => {
   const ignite = () => {
     try {
       glow?.run(launchGlowLayout(), LAUNCH_STAGES)
+      if (!glow) {
+        document.dispatchEvent(new CustomEvent('kanso:game-host-overlay', {
+          detail: { kind: 'launch-glow', phase: 'end' },
+        }))
+      }
     } catch (error) {
       glow?.cancel() // 排不出序列也不能把界面留在暗态
+      document.dispatchEvent(new CustomEvent('kanso:game-host-overlay', {
+        detail: { kind: 'launch-glow', phase: 'end' },
+      }))
       recordCrash('startup:launch-glow', error)
     }
   }

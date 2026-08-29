@@ -27,6 +27,15 @@ interface KancolleServerInfo {
 }
 
 class GameAPIBroadcaster extends EventEmitter {
+  private gameWebContentsId: number | null = null
+
+  setGameWebContentsId = (id: number | null) => {
+    this.gameWebContentsId = id
+  }
+
+  acceptsGameWebContents = (id: number): boolean =>
+    this.gameWebContentsId != null && id === this.gameWebContentsId
+
   serverList: KancolleServerInfo = JSON.parse(
     fs.readFileSync(path.join(ROOT, 'assets', 'data', 'server.json'), 'utf8'),
   )
@@ -157,7 +166,7 @@ const isGamePath = (pathname: unknown): pathname is string =>
 
 ipcMain.on('kanso:game-api', (event, kind: unknown, payload: any) => {
   try {
-    if (event.sender.getType() !== 'webview') return
+    if (event.sender.getType() !== 'webview' || !broadcaster.acceptsGameWebContents(event.sender.id)) return
     if (!payload || typeof payload !== 'object') return
     const { method, pathname, responseURL } = payload
     if (typeof responseURL !== 'string') return

@@ -31,6 +31,10 @@ const DEFAULTS: Record<string, unknown> = {
     voiceCaptions: true,
     // 游戏实际播放的总音量、语音/BGM 分项增益与内容过滤；不改游戏自身设置。
     gameAudio: { volume: 1, voiceVolume: 1, bgmVolume: 1, mode: 'all' },
+    gameWindow: {
+      mode: 'embedded',
+      bounds: { x: 0, y: 0, width: 1000, height: 650, isMaximized: false },
+    },
     // 新舰 / 大破 / 应急修理的置顶横幅及应用外框光效；铃中的事件记录不受影响。
     eventBannerEffects: true,
     // 出击中舰娘被击沉后的哀悼视觉（界面失色 + 编队卡碎裂），到返港为止。

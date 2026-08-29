@@ -66,6 +66,12 @@ import {
   observedCond,
 } from '../fatigue'
 import { clampPushIdleMinutes, PUSH_CONFIG_PATHS, PUSH_DEFAULTS } from '../../shared/push-config'
+import {
+  clearGameBanners,
+  publishGameBanner,
+  publishGameToast,
+  removeGameBanner,
+} from '../game-window-client'
 
 const { ipcRenderer } = require('electron')
 const remote = require('@electron/remote')
@@ -351,6 +357,7 @@ const syncWeddingPetals = () => {
 
 const closeEventBanner = (noticeKey: string) => {
   activeBanners.delete(noticeKey)
+  removeGameBanner(noticeKey)
   bannerHost?.querySelector<HTMLElement>(`[data-banner-id="${noticeKey}"]`)?.remove()
   if (!bannerHost?.children.length) {
     bannerHost?.remove()
@@ -362,6 +369,7 @@ const closeEventBanner = (noticeKey: string) => {
 
 const clearEventBanners = () => {
   activeBanners.clear()
+  clearGameBanners()
   bannerHost?.remove()
   bannerHost = null
   syncFrameGlow()
@@ -391,6 +399,19 @@ const showEventBanner = (def: EventDef, notice: Notice, override?: BannerTone): 
   if (!eventBannerEffectsEnabled || !tone) return false
   const banner: EventBanner = { notice, def, tone }
   activeBanners.set(notice.key, banner)
+  publishGameBanner(
+    {
+      id: notice.key,
+      tone,
+      icon: def.icon,
+      title: notice.title,
+      detail: notice.detail,
+      order: BANNER_ORDER[tone],
+      actionLabel: jumpLabelOf(def, notice.ref),
+    },
+    () => goToNotice(def, notice.ref),
+    () => closeEventBanner(notice.key),
+  )
 
   const el = document.createElement('section')
   el.className = `lg-banner ${tone}`
@@ -404,7 +425,9 @@ const showEventBanner = (def: EventDef, notice: Notice, override?: BannerTone): 
     </span>`
   el.querySelector('.go')?.addEventListener('click', () => goToNotice(def, notice.ref))
   el.querySelector('.close')?.addEventListener('click', () => closeEventBanner(notice.key))
-  ensureBannerHost().appendChild(el)
+  const legacyHost = ensureBannerHost()
+  legacyHost.hidden = true
+  legacyHost.appendChild(el)
   syncFrameGlow()
   return true
 }
@@ -527,7 +550,8 @@ const ensureToastBox = () => {
   // 游戏容器没就绪或被收起（clientWidth=0）时退回 body 右下——通知不能
   // 跟着容器一起隐身。每次显示都重估宿主，搬 DOM 不丢已在显示的通知。
   const wrapper = document.querySelector<HTMLElement>('#game-wrapper')
-  const host = wrapper && wrapper.clientWidth > 0 ? wrapper : document.body
+  const host = wrapper ?? document.body
+  toastBox.hidden = !wrapper
   if (toastBox.parentElement !== host) host.appendChild(toastBox)
   return toastBox
 }
@@ -567,6 +591,20 @@ const evictOverflowToasts = (box: HTMLElement) => {
 }
 
 const showToast = (def: EventDef, title: string, detail: string, ref?: EntityRef) => {
+  const severity =
+    def.sev === 'crit' ? 'danger' : def.sev === 'gold' ? 'warn' : def.sev === 'blue' ? 'info' : def.sev
+  publishGameToast(
+    {
+      id: `${def.id}-${Date.now()}`,
+      severity,
+      title,
+      detail,
+      locked: def.locked === true,
+      groupKey: def.locked ? undefined : def.id,
+      actionLabel: jumpLabelOf(def, ref),
+    },
+    () => goToNotice(def, ref),
+  )
   const box = ensureToastBox()
   // 同类合并（2026-08-17 用户点名「一次处理多了会瞬间占满那一条空间」）：
   // 同类型且非锁定的新通知折进已在显示的那张卡——标题计数 ×N、正文换最新
@@ -636,6 +674,20 @@ const showPowerupResultToast = (result: PowerupResultCue) => {
   const box = ensureToastBox()
   const original = mg.master.ships[result.mstId]?.name ?? `#${result.mstId}`
   const shipName = entityNamePlain('ship', result.mstId, original)
+  publishGameToast(
+    {
+      id: `powerup-${Date.now()}`,
+      severity: 'ok',
+      title: `强化成功 · ${shipName}`,
+      detail: result.stats.length
+        ? result.stats.map((stat) => `${POWERUP_STAT[stat.key].label} +${stat.delta}`).join(' · ')
+        : '强化已生效 · 本次没有属性提升明细',
+      locked: false,
+      durationMs: 7000,
+      actionLabel: '查看这艘舰',
+    },
+    () => navigate({ type: 'ship', id: result.rosterId }),
+  )
   const stats = result.stats.length
     ? result.stats
         .map((stat) => {

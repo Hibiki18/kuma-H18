@@ -4,10 +4,9 @@ import './env' // 必须最先执行：设置 global 环境常量
 import { APPDATA_PATH } from './env'
 import * as electronRemote from '@electron/remote/main'
 import { X509Certificate, createHash } from 'crypto'
-import { app, BrowserWindow, ipcMain, screen, webContents } from 'electron'
+import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
 
 import config from './config'
 import { installCrashLogging, reportFatal } from './crash-log'
@@ -30,13 +29,10 @@ import {
   setTrayUnread,
   showMainWindow,
 } from './tray'
-import {
-  registerKcsResourceScheme,
-  registerKcsResourceProtocol,
-  setKcsResourceGameWebContentsId,
-} from './kcs-resource'
-import { handleWebviewPreloadHack, handleNewWindow, stopFileNavigate } from './webcontent-utils'
+import { registerKcsResourceScheme, registerKcsResourceProtocol } from './kcs-resource'
+import { handleNewWindow } from './webcontent-utils'
 import { DEFAULT_DISK_CACHE_MB, resolveDiskCacheMB } from '../shared/disk-cache'
+import { GameHostManager } from './game-host-manager'
 
 // Chromium 的 Cookie / Local Storage / ServiceWorker 与业务数据共用稳定的 kanso 目录。
 // 不能依赖 productName 推导默认 userData，否则开发版改名或打包为「艦素」后会像首次登录。
@@ -89,7 +85,8 @@ app.on('before-quit', () => flushVoiceProbe())
 
 // 退出兜底必须**排在铭之后**注册：before-quit 按注册顺序回调，
 // 账本存盘要先落地，再去关子进程、再谈强制退出。
-installQuitGuard()
+let gameHostManager: GameHostManager | null = null
+installQuitGuard(4000, () => gameHostManager?.dispose())
 
 // kanso-cache:// 特权 scheme 必须在 app ready 前注册
 registerKcsResourceScheme()
@@ -295,7 +292,10 @@ if (!app.requestSingleInstanceLock()) {
   // 放在拿锁之前清，会把正在用的那个实例误杀掉。
   reapOrphanKansoProcesses()
   // 收进托盘后再点一次启动：restore+focus 对隐藏窗口是无效的，走托盘那条统一的唤回
-  app.on('second-instance', () => showMainWindow())
+  app.on('second-instance', () => {
+    showMainWindow()
+    gameHostManager?.restoreWindows()
+  })
 }
 
 app.on('window-all-closed', () => {
@@ -349,7 +349,7 @@ app.on('ready', () => {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      webviewTag: true,
+      webviewTag: false,
       backgroundThrottling: false,
       spellcheck: false,
     },
@@ -366,9 +366,6 @@ app.on('ready', () => {
   win.show()
 
   electronRemote.enable(win.webContents)
-  const trustedWebviewPreload = path.join(ROOT, 'assets', 'preload', 'webview-preload.js')
-  let gameWebContentsId: number | null = null
-
   // ---- 试听时压住游戏声音 ----
   // 渲染层任一试听真的在响就报一声（两个播放器的状态在 renderer/preview-audio 合并过，
   // 变了才发），这里转给游戏页的 preload——那边把游戏总音量乘 0，试听一停再乘回 1。
@@ -378,8 +375,7 @@ app.on('ready', () => {
   let previewDucking = false
   const sendPreviewDuck = (active: boolean) => {
     previewDucking = active
-    const game = gameWebContentsId == null ? null : webContents.fromId(gameWebContentsId)
-    if (game && !game.isDestroyed()) game.send('kanso:preview-audio-duck', active)
+    gameHostManager?.setPreviewDucking(active)
   }
   ipcMain.on('kanso:preview-audio-active', (event, active: unknown) => {
     // 只认主窗口那一个渲染进程：游戏页里的脚本不该按得住自己的喇叭
@@ -393,61 +389,15 @@ app.on('ready', () => {
   }
   win.webContents.on('did-navigate', clearPreviewDuck)
   win.webContents.once('destroyed', clearPreviewDuck)
-  win.webContents.addListener('will-attach-webview', (event, webPreferences, params) => {
-    const current = gameWebContentsId == null ? null : webContents.fromId(gameWebContentsId)
-    let preloadMatches = false
-    try {
-      const preload = params.preload?.startsWith('file:')
-        ? fileURLToPath(params.preload)
-        : params.preload
-      preloadMatches =
-        typeof preload === 'string' &&
-        path.resolve(preload).toLowerCase() === path.resolve(trustedWebviewPreload).toLowerCase()
-    } catch (error) {
-      console.warn('[kanso] rejected webview with invalid preload URL', error)
-    }
-
-    // 主页面需要 webviewTag 承载游戏，但矿脉数据也会进入该页面的 innerHTML。
-    // 只接受应用同步创建的首个游戏视图；额外 webview 即使伪造标签也不能附着。
-    if ((current && !current.isDestroyed() && !current.isCrashed()) || !preloadMatches) {
-      event.preventDefault()
-      console.warn('[kanso] rejected unexpected webview attachment')
-      return
-    }
-    webPreferences.preload = trustedWebviewPreload
-    webPreferences.nodeIntegration = false
-    webPreferences.nodeIntegrationInSubFrames = true
-    webPreferences.nodeIntegrationInWorker = false
-    webPreferences.contextIsolation = true
-    webPreferences.sandbox = false
-    webPreferences.webSecurity = false
-    webPreferences.allowRunningInsecureContent = false
-    webPreferences.webviewTag = false
-  })
-  win.webContents.addListener('did-attach-webview', (_event, webContent) => {
-    gameWebContentsId = webContent.id
-    setKcsResourceGameWebContentsId(webContent.id)
-    // 换了一页游戏就是换了一份 preload，那边的试听系数从 1 起——正在试听的话补一声
-    if (previewDucking) sendPreviewDuck(true)
-    webContent.once('destroyed', () => {
-      if (gameWebContentsId === webContent.id) {
-        gameWebContentsId = null
-        setKcsResourceGameWebContentsId(null)
-      }
-    })
-    electronRemote.enable(webContent)
-    stopFileNavigate(webContent.id)
-    handleNewWindow(webContent.id)
-  })
-  // 嵌套 iframe preload 失效兜底
-  handleWebviewPreloadHack(win.webContents.id)
   // 主窗口自己的 target=_blank（图鉴「史实」页外链等）也走系统默认浏览器——
   // 此前只有游戏 webview 挂了这层，主窗口会孵出一个没菜单没会话的裸 Electron
   // 窗口，外站基本打不开（2026-08-19 用户实测「弹出来的浏览器没用」）
   handleNewWindow(win.webContents.id)
 
   win.setMenu(null)
-  installTray(() => mainWindow)
+  installTray(() => mainWindow, () => gameHostManager?.gameWindow ?? null)
+  gameHostManager = new GameHostManager(win, appIcon)
+  void gameHostManager.start().catch((error) => reportFatal('game-host:start', error))
   win.loadFile(path.join(ROOT, 'dist', 'renderer', 'index.html'))
 
   win.webContents.on('will-navigate', (e) => {
@@ -471,6 +421,7 @@ app.on('ready', () => {
   win.on('closed', () => {
     mainWindow = null
     destroyTray()
+    app.quit()
     if (resourceTrendWindow && !resourceTrendWindow.isDestroyed()) {
       resourceTrendWindow.close()
     }

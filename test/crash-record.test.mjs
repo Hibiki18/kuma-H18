@@ -262,10 +262,11 @@ test('主进程要感知渲染进程没了，并在退出时带走子进程', ()
   assert.match(read('../src/main/quit-guard.ts'), /export const installQuitGuard/)
   const main = read('../src/main/index.ts')
   assert.match(main, /installCrashLogging\(\)/)
-  assert.match(main, /installQuitGuard\(\)/)
+  assert.match(main, /installQuitGuard\(4000,/)
+  assert.match(main, /gameHostManager\?\.dispose\(\)/)
   // 退出兜底必须排在铭之后注册：账本存盘要先落地
   assert.ok(
-    main.indexOf("require('./mg')") < main.indexOf('installQuitGuard()'),
+    main.indexOf("require('./mg')") < main.indexOf('installQuitGuard('),
     'installQuitGuard 跑到了铭前面，before-quit 会先关子进程再存账本',
   )
 })

@@ -215,7 +215,7 @@ export const reapOrphanKansoProcesses = () => {
  * 另外每分钟采样一次：万一 Chromium 中途就把某个渲染进程从账上划掉了
  * （进程还在、只是没人管了——这正是孤儿的成因），退出时的两次收割也看不见它。
  */
-export const installQuitGuard = (graceMs = 4000) => {
+export const installQuitGuard = (graceMs = 4000, gracefulDispose?: () => void) => {
   let quitting = false
   const rendererPids = new Set<number>()
   const harvestRendererPids = () => {
@@ -319,6 +319,11 @@ export const installQuitGuard = (graceMs = 4000) => {
     trace(`before-quit：appMetrics = ${describeAppMetrics()}`)
     harvestRendererPids()
     trace(`before-quit：收割到 PID ${[...rendererPids].join(',') || '（空）'}`)
+    try {
+      gracefulDispose?.()
+    } catch (error) {
+      safeConsole('warn', '[kanso] 游戏宿主退出收尾失败', error)
+    }
     for (const contents of webContents.getAllWebContents()) {
       try {
         if (!contents.isDestroyed()) contents.close()

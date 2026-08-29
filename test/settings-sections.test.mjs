@@ -106,11 +106,9 @@ test('分类表：抽掉维护者工具卡之后，没有一类被掏空或只�
   }
   const release = SETTINGS_SECTIONS.flatMap((section) => [...settingsCardsOf(section.id)])
   assert.equal(release.length, SETTINGS_CARD_IDS.length - DEBUG_ONLY_CARDS.length)
-  assert.equal(release.length, 18, '发行版的卡数变了——两种形态的数字都要重新对一遍')
-  // 20：2026-08-26 拔掉战斗演出族时撤走了「索敌飞机 · Δ 校准」那张维护者卡（19），
-  // 同日修语音滑条时又添了「游戏音频链路自检」（20）。两张都只在调试门后装配，
-  // 所以发行版那 18 张自始至终没变过。
-  assert.equal(SETTINGS_CARD_IDS.length, 20, '调试态的卡数变了')
+  assert.equal(release.length, 19, '发行版的卡数变了——两种形态的数字都要重新对一遍')
+  // 独立游戏窗口增加一张正式卡；两张维护者卡仍只在调试门后装配。
+  assert.equal(SETTINGS_CARD_IDS.length, 21, '调试态的卡数变了')
 })
 
 // ---- ② 把钥编出来真渲染一遍 ----

@@ -54,6 +54,22 @@ const STUBS = {
     }
   `,
   'renderer/voice-probe.ts': 'export const reloadVoiceAbsent = async () => {}\n',
+  'renderer/game-window-client.ts': `
+    export const getGameWindowSnapshot = () => ({
+      phase: 'EMBEDDED', effectiveMode: 'embedded', configuredMode: 'embedded',
+      hostWebContentsId: 1, guestWebContentsId: 2, requestId: 0, canRetry: false,
+    })
+    export const setGameWindowMode = async () => ({ ok: true })
+    export const executeGameCommand = async () => {
+      const webview = (globalThis as any).document?.querySelector?.('#game-wrapper webview')
+      if (!webview) return { ok: false, message: '游戏页还没挂上，等它出来再读' }
+      try {
+        return { ok: true, value: await webview.executeJavaScript('window.kansoGameAudioStats ? window.kansoGameAudioStats() : null') }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  `,
   'renderer/modules/lg.ts': `
     export const setBuildSpoilerEnabled = (_v: boolean) => {}
     export const setEventBannerEffectsEnabled = (_v: boolean) => {}

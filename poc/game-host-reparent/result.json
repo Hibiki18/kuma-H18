@@ -1,0 +1,118 @@
+{
+  "timestamp": "2026-08-29T04:44:52.082Z",
+  "environment": {
+    "platform": "win32",
+    "osRelease": "10.0.26100",
+    "electron": "43.4.1",
+    "chrome": "150.0.7871.224",
+    "displays": [
+      {
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1032
+        },
+        "scaleFactor": 1
+      }
+    ]
+  },
+  "iterations": 100,
+  "migrations": 200,
+  "initialCounters": {
+    "attach": 1,
+    "guestDestroyed": 0,
+    "hostMainNavigations": 1,
+    "guestMainNavigations": 0,
+    "guestDomReady": 1
+  },
+  "finalCounters": {
+    "attach": 1,
+    "guestDestroyed": 0,
+    "hostMainNavigations": 1,
+    "guestMainNavigations": 0,
+    "guestDomReady": 1
+  },
+  "maxMigrationMs": 15.046399999999949,
+  "apiGenerated": 122,
+  "apiObserved": 122,
+  "identity": {
+    "hostWebContentsId": 3,
+    "guestWebContentsId": 4,
+    "guestProcessId": 21072,
+    "sessionStoragePath": "G:\\projects\\kuma-H18\\poc\\game-host-reparent\\.runtime",
+    "hostInstance": "29a495aa-c1fb-448d-83ba-b7052ba1cec5",
+    "instance": "7e3a5526-dabb-42b6-af60-4cdc2b5772c5",
+    "requestSeq": 6,
+    "inputEvents": 0,
+    "pointerEvents": 0,
+    "wheelEvents": 0,
+    "inputValue": "",
+    "activeElement": "",
+    "audioInstance": "9afa64b0-a402-441e-820f-0255632db2d1",
+    "audioState": "running",
+    "audioTime": 0,
+    "preloadAudioHook": true,
+    "iframeInstance": "2b272b51-b2d6-4460-9fde-659664e47e4d"
+  },
+  "finalIdentity": {
+    "hostWebContentsId": 3,
+    "guestWebContentsId": 4,
+    "guestProcessId": 21072,
+    "sessionStoragePath": "G:\\projects\\kuma-H18\\poc\\game-host-reparent\\.runtime",
+    "hostInstance": "29a495aa-c1fb-448d-83ba-b7052ba1cec5",
+    "overlayClicks": 1,
+    "instance": "7e3a5526-dabb-42b6-af60-4cdc2b5772c5",
+    "requestSeq": 122,
+    "inputEvents": 1,
+    "pointerEvents": 1,
+    "wheelEvents": 1,
+    "inputValue": "K",
+    "activeElement": "probe-button",
+    "audioInstance": "9afa64b0-a402-441e-820f-0255632db2d1",
+    "audioState": "running",
+    "audioTime": 5.272,
+    "preloadAudioHook": true,
+    "iframeInstance": "2b272b51-b2d6-4460-9fde-659664e47e4d"
+  },
+  "assertions": {
+    "hostIdStable": true,
+    "guestIdStable": true,
+    "guestProcessStable": true,
+    "sessionStable": true,
+    "hostInstanceStable": true,
+    "guestInstanceStable": true,
+    "iframeInstanceStable": true,
+    "attachCountStable": true,
+    "noExtraHostNavigation": true,
+    "noExtraGuestNavigation": true,
+    "noExtraGuestDomReady": true,
+    "guestNotDestroyed": true,
+    "productionPreloadInstalled": true,
+    "audioInstanceStable": true,
+    "audioAdvanced": true,
+    "apiContinuous": true,
+    "inputReceived": true,
+    "pointerReceived": true,
+    "wheelReceived": true,
+    "overlayHitAboveGuest": true,
+    "underOneSecond": true,
+    "targetCreateFailurePreservedSource": true,
+    "targetAttachFailureRolledBack": true,
+    "closeReturnedToWorkbench": true
+  },
+  "automatedGatePassed": true,
+  "remainingManualMatrix": [
+    "Windows 10",
+    "125% DPI",
+    "150% DPI",
+    "200% DPI",
+    "mixed-DPI dual display"
+  ]
+}

@@ -36,6 +36,7 @@ import {
 } from '../shared/voice-caption-hold'
 import { shouldRenderCaption } from '../shared/voice-request-gate'
 import { normalizeVoiceText } from '../shared/voice-text'
+import { executeGameCommand, publishGameOverlay } from './game-window-client'
 
 const remote = require('@electron/remote')
 const { ipcRenderer } = require('electron')
@@ -168,11 +169,7 @@ const clearCaptionVisuals = () => {
   hourlyTimer = null
   for (const timer of lineTimers) clearTimeout(timer)
   lineTimers.clear()
-  const subtitle = document.querySelector<HTMLElement>('#voice-subtitle')
-  subtitle?.classList.remove('show', 'voice-wedding')
-  subtitle?.querySelector<HTMLElement>('.voice-subtitle-speaker')?.replaceChildren()
-  subtitle?.querySelector<HTMLElement>('.voice-subtitle-line')?.replaceChildren()
-  document.querySelector<HTMLElement>('#voice-danmaku')?.replaceChildren()
+  publishGameOverlay({ kind: 'caption-clear' })
 }
 
 export const setVoiceCaptionsEnabled = (enabled: boolean) => {
@@ -587,9 +584,6 @@ const captionsFor = (cue: VoiceRequestCue): CaptionLine[] =>
 const toneClass = (tone: CaptionLine['tone']): string =>
   !tone ? '' : tone === 'wedding' ? 'voice-wedding' : `dmg-${tone}`
 
-/** 游戏页那个 webview。只用到 executeJavaScript，所以按结构写类型，不牵 electron 的类型进来 */
-type GameWebview = HTMLElement & { executeJavaScript(code: string): Promise<unknown> }
-
 /**
  * 问游戏页：这一条语音解出来有多长（毫秒）？查不到给 null。
  *
@@ -604,11 +598,9 @@ type GameWebview = HTMLElement & { executeJavaScript(code: string): Promise<unkn
  */
 const voiceAudioMs = (pathname: string | undefined): Promise<number | null> => {
   if (!pathname) return Promise.resolve(null)
-  const webview = document.querySelector<GameWebview>('#game-wrapper webview')
-  if (!webview) return Promise.resolve(null)
-  return webview
-    .executeJavaScript('window.kansoGameAudioStats ? window.kansoGameAudioStats() : null')
-    .then((result) => {
+  return executeGameCommand({ type: 'audio-stats' })
+    .then((command) => {
+      const result = command.ok ? command.value : null
       const frames = Array.isArray(result) ? result : []
       let longest: number | null = null
       for (const frame of frames) {
@@ -626,21 +618,7 @@ const voiceAudioMs = (pathname: string | undefined): Promise<number | null> => {
 }
 
 const showSubtitle = ({ speaker: speakerText, text, tone, pathname }: CaptionLine) => {
-  const host = document.querySelector<HTMLElement>('#voice-subtitle')
-  const speaker = host?.querySelector<HTMLElement>('.voice-subtitle-speaker')
-  const line = host?.querySelector<HTMLElement>('.voice-subtitle-line')
-  if (!captionsEnabled || !host || !speaker || !line || !text) return
-
-  speaker.textContent = speakerText
-  line.textContent = text
-  // 底部字幕是**同一个**常驻元素反复复用：上一句染过的色必须先摘干净，
-  // 否则婚礼那一句之后，母港里每一句台词都会继续挂着粉。
-  host.classList.remove('voice-wedding')
-  if (tone === 'wedding') host.classList.add('voice-wedding')
-  host.classList.remove('show')
-  // 同一句连续触发时也重新开始淡入和停留计时。
-  void host.offsetWidth
-  requestAnimationFrame(() => host.classList.add('show'))
+  if (!captionsEnabled || !text) return
   // 退场分两段（判据全在 shared/voice-caption-hold）：先撑住一个最短展示，
   // 到期**不直接退**，而是先问游戏页这条音轨真有多长，问到就续到音轨结束。
   // 之所以不在一开始就问：那时游戏多半还没解码完（howler 先取字节再 decode 再播），
@@ -648,6 +626,14 @@ const showSubtitle = ({ speaker: speakerText, text, tone, pathname }: CaptionLin
   const generation = ++captionGeneration
   const shownAt = Date.now()
   const textLength = [...text].length
+  publishGameOverlay({
+    kind: 'caption',
+    mode: 'bottom',
+    speaker: speakerText,
+    text,
+    tone,
+    durationMs: captionHideAtMs({ shownAtMs: shownAt, textLength, audioMs: null }) - shownAt,
+  })
   if (hideTimer) clearTimeout(hideTimer)
   hideTimer = setTimeout(() => {
     hideTimer = null
@@ -656,14 +642,14 @@ const showSubtitle = ({ speaker: speakerText, text, tone, pathname }: CaptionLin
       if (generation !== captionGeneration) return
       const remaining = captionHideAtMs({ shownAtMs: shownAt, textLength, audioMs }) - Date.now()
       if (remaining <= 0) {
-        host.classList.remove('show')
+        publishGameOverlay({ kind: 'caption-clear' })
         return
       }
       // 只续这一次：第二段到期直接退场，不再问第二遍
       if (hideTimer) clearTimeout(hideTimer)
       hideTimer = setTimeout(() => {
         hideTimer = null
-        host.classList.remove('show')
+        publishGameOverlay({ kind: 'caption-clear' })
       }, remaining)
     })
   }, captionMinHoldMs(textLength))
@@ -673,22 +659,21 @@ const showDanmaku = (
   { speaker, text, tone }: CaptionLine,
   direction: Exclude<CaptionMode, 'bottom'>,
 ) => {
-  const host = document.querySelector<HTMLElement>('#voice-danmaku')
-  if (!captionsEnabled || !host || !text) return
-  const item = document.createElement('span')
+  if (!captionsEnabled || !text) return
   const lane = direction === 'friendly' ? friendlyLane++ % 4 : enemyLane++ % 4
   // 战斗语音不做密度限制：每个实际请求都立即放出，速度按台词长短给（判据在
   // shared/voice-caption-hold）——弹幕要的是**读完**，长句用固定 6 秒会没读完就飘出去。
   // 只按台词算，speaker 前缀不计入：名字是眼睛一扫就过的，不占阅读时间。
   const duration = danmakuDurationSeconds([...text].length)
-  item.className = `voice-danmaku-item ${direction}${tone ? ` ${toneClass(tone)}` : ''}`
-  item.style.setProperty('--voice-lane', `${lane}`)
-  item.style.setProperty('--voice-duration', `${duration}s`)
-  item.textContent = speaker ? `${speaker}：${text}` : text
-  const remove = () => item.remove()
-  item.addEventListener('animationend', remove, { once: true })
-  host.appendChild(item)
-  setTimeout(remove, Math.ceil(duration * 1000) + 500)
+  publishGameOverlay({
+    kind: 'caption',
+    mode: direction,
+    speaker,
+    text,
+    tone,
+    durationMs: Math.ceil(duration * 1000),
+    lane,
+  })
 }
 
 const modeFor = (cue: VoiceRequestCue): CaptionMode => {
