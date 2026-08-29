@@ -69,7 +69,6 @@ import { clampPushIdleMinutes, PUSH_CONFIG_PATHS, PUSH_DEFAULTS } from '../../sh
 import {
   clearGameBanners,
   publishGameBanner,
-  publishGameToast,
   removeGameBanner,
 } from '../game-window-client'
 
@@ -546,13 +545,9 @@ const ensureToastBox = () => {
     toastBox = document.createElement('div')
     toastBox.id = 'lg-toasts'
   }
-  // 挂游戏画面的右下角而非应用窗口右下（用户 2026-08-11 定的位置）。
-  // 游戏容器没就绪或被收起（clientWidth=0）时退回 body 右下——通知不能
-  // 跟着容器一起隐身。每次显示都重估宿主，搬 DOM 不丢已在显示的通知。
-  const wrapper = document.querySelector<HTMLElement>('#game-wrapper')
-  const host = wrapper ?? document.body
-  toastBox.hidden = !wrapper
-  if (toastBox.parentElement !== host) host.appendChild(toastBox)
+  // Toast 归工作台所有：游戏画面拆出与否都不迁移，也不向游戏宿主复制一份。
+  // 固定挂 body，避免嵌入态同时出现「游戏画面右下 + 工作台窗口右下」两张卡。
+  if (toastBox.parentElement !== document.body) document.body.appendChild(toastBox)
   return toastBox
 }
 
@@ -591,24 +586,6 @@ const evictOverflowToasts = (box: HTMLElement) => {
 }
 
 const showToast = (def: EventDef, title: string, detail: string, ref?: EntityRef) => {
-  const severity =
-    def.sev === 'crit' ? 'danger' : def.sev === 'gold' ? 'warn' : def.sev === 'blue' ? 'info' : def.sev
-  publishGameToast(
-    {
-      id: `${def.id}-${Date.now()}`,
-      severity,
-      title,
-      detail,
-      locked: def.locked === true,
-      groupKey: def.locked ? undefined : def.id,
-      groupTitle: def.label,
-      count: toastCountOf(title),
-      actionLabel: jumpLabelOf(def, ref),
-      groupActionLabel: jumpLabelOf(def),
-    },
-    () => goToNotice(def, ref),
-    () => goToNotice(def),
-  )
   const box = ensureToastBox()
   // 同类合并（2026-08-17 用户点名「一次处理多了会瞬间占满那一条空间」）：
   // 同类型且非锁定的新通知折进已在显示的那张卡——标题计数 ×N、正文换最新
@@ -678,20 +655,6 @@ const showPowerupResultToast = (result: PowerupResultCue) => {
   const box = ensureToastBox()
   const original = mg.master.ships[result.mstId]?.name ?? `#${result.mstId}`
   const shipName = entityNamePlain('ship', result.mstId, original)
-  publishGameToast(
-    {
-      id: `powerup-${Date.now()}`,
-      severity: 'ok',
-      title: `强化成功 · ${shipName}`,
-      detail: result.stats.length
-        ? result.stats.map((stat) => `${POWERUP_STAT[stat.key].label} +${stat.delta}`).join(' · ')
-        : '强化已生效 · 本次没有属性提升明细',
-      locked: false,
-      durationMs: 7000,
-      actionLabel: '查看这艘舰',
-    },
-    () => navigate({ type: 'ship', id: result.rosterId }),
-  )
   const stats = result.stats.length
     ? result.stats
         .map((stat) => {
@@ -810,13 +773,25 @@ const holdNotice = (item: HeldNotice) => {
   }
 }
 
-const showSystemNotice = (
+const appHasFocusedWindow = async (): Promise<boolean> => {
+  // 工作台本身拿着焦点时无需 IPC；焦点落在嵌入式游戏宿主时必须让主进程按
+  // BrowserWindow 判断，否则 document.hasFocus() 会误报后台并多弹一份系统通知。
+  if (document.hasFocus()) return true
+  try {
+    return (await ipcRenderer.invoke('window:has-focused-window')) === true
+  } catch (_e) {
+    // 查询失败时保留既有降级语义：工作台确实失焦就允许系统通知，避免静默漏报。
+    return false
+  }
+}
+
+const showSystemNotice = async (
   def: EventDef,
   title: string,
   detail: string,
   ref?: EntityRef,
 ) => {
-  if (document.hasFocus()) return
+  if (await appHasFocusedWindow()) return
   try {
     const notice = new Notification(`kuma · ${title}`, { body: detail, silent: true })
     notice.onclick = () => {
@@ -1169,7 +1144,7 @@ const notify = (
   } else {
     if (toast) showToast(displayDef, title, detail, ref)
     if (sound) beep(blocking)
-    if (system) showSystemNotice(displayDef, title, detail, ref)
+    if (system) void showSystemNotice(displayDef, title, detail, ref)
   }
   renderIfActive()
 }

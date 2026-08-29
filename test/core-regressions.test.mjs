@@ -5850,6 +5850,15 @@ test('托盘只做入口，不改默认的退出语义、也不自己判定未�
   assert.match(notifications, /void showMainWindow\(\)/)
   assert.match(main, /ipcMain\.handle\('window:show', \(\) => showMainWindow\(\)\)/)
   assert.match(main, /app\.on\('second-instance', \(\) => \{\s*showMainWindow\(\)\s*gameHostManager\?\.restoreWindows\(\)/)
+
+  // 游戏嵌入时焦点在宿主 WebContentsView，不在工作台 document。系统通知的「仅后台」
+  // 必须看整个应用有没有聚焦窗口，否则游戏内 Toast 与系统通知会同时出现两份。
+  assert.match(
+    main,
+    /ipcMain\.handle\('window:has-focused-window',[\s\S]*BrowserWindow\.getFocusedWindow\(\) !== null/,
+  )
+  assert.match(notifications, /await ipcRenderer\.invoke\('window:has-focused-window'\)/)
+  assert.match(notifications, /if \(await appHasFocusedWindow\(\)\) return/)
 })
 
 test('装备有了在籍轴，且与舰娘那一侧同口径', () => {
@@ -9840,7 +9849,7 @@ test('三维成长分层：一手上限优先、kcwiki 的 -1 当缺、缺资料
   assert.match(catalog, /growthRows\.every\(\(row\) => !row\)/)
 })
 
-test('受损语音弹幕按播放时刻血量分四档，通知展示随游戏宿主移动', () => {
+test('受损语音弹幕按播放时刻血量分四档，Toast 只留在工作台窗口', () => {
   // 弹幕着色（用户 2026-08-11，小破/中破/大破/击沉四档）：我方 19/20/21 是
   // 全舰统一受损语音槽、22=轟沈（wikiwiki 语音表 100+ 舰实证），深海
   // damage 槽=音轨后缀 30/31、sunk=40/41。受损音轨按战斗视图实际血量分：
@@ -9862,10 +9871,15 @@ test('受损语音弹幕按播放时刻血量分四档，通知展示随游戏�
       new RegExp(`\\.voice-danmaku-item\\.dmg-${tone} \\{ color: var\\(--voice-dmg-${tone}\\); \\}`),
     )
   }
-  // 业务判定留在铃，宿主只收已经判定好的展示 DTO；这样通知仍锚在
-  // 同一游戏矩形右下角并随宿主迁移。
+  // Toast 归工作台窗口：游戏画面拆出与否都不向宿主复制，避免嵌入态同时出现
+  // 「游戏画面右下 + 工作台窗口右下」两张内容相同的卡。
   const bell = fs.readFileSync(new URL('../src/renderer/modules/lg.ts', import.meta.url), 'utf8')
-  assert.match(bell, /publishGameToast\(/)
+  const workbenchHtml = fs.readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
+  assert.doesNotMatch(bell, /publishGameToast/)
+  assert.match(bell, /toastBox\.parentElement !== document\.body/)
+  assert.match(workbenchHtml, /#lg-toasts \{ position: fixed;/)
+  assert.doesNotMatch(workbenchHtml, /#game-wrapper > #lg-toasts/)
+  // 游戏宿主保留通用 Toast 展示能力供隔离测试使用，但铃不再向这里发送业务通知。
   assert.match(hostHtml, /#lg-toasts \{ position: absolute;/)
   assert.match(hostHtml, /right: 12px; bottom: 12px; width: min\(330px, 44%\)/)
 })

@@ -309,6 +309,14 @@ ipcMain.handle('tray:unread', (_event, count: unknown) =>
 ipcMain.handle('tray:dnd', (_event, active: unknown) => setTrayDnd(active === true))
 // 系统通知点开时用：窗口若已收进托盘，renderer 的 window.focus() 是无效的
 ipcMain.handle('window:show', () => showMainWindow())
+// 游戏画面现在由独立 WebContentsView 承载。玩家在嵌入态点进游戏后，工作台 renderer 的
+// document.hasFocus() 会是 false，但承载它们的 BrowserWindow 仍在前台；只看前者会把
+// 同一条消息同时送成游戏内 Toast 与系统通知。系统通知的「仅后台」应按整个应用判断。
+ipcMain.handle('window:has-focused-window', (event) => {
+  const workbench = mainWindow
+  if (!workbench || workbench.isDestroyed() || event.sender.id !== workbench.webContents.id) return false
+  return BrowserWindow.getFocusedWindow() !== null
+})
 
 app.on('ready', () => {
   registerKcsResourceProtocol()

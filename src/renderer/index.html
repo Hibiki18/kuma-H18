@@ -6981,10 +6981,8 @@
       .lg-banner .actions { grid-column: 2; justify-content: flex-end; }
     }
     /* 全局 Toast 层：右下堆叠，容器不拦点击 */
-    /* fixed 是 body 兜底（游戏容器未就绪/被收起）；挂进游戏画面时改为容器内绝对定位。
-       宽度压在 250（他看预览嫌 300 太宽） */
+    /* Toast 固定归工作台窗口，不随游戏宿主迁移。宽度压在 250（他看预览嫌 300 太宽）。 */
     #lg-toasts { position: fixed; right: 12px; bottom: 12px; z-index: 1100; display: flex; flex-direction: column; gap: 7px; width: min(250px, calc(100vw - 24px)); pointer-events: none; }
-    #game-wrapper > #lg-toasts { position: absolute; }
     /* 试听条也占右下角：它在的时候整摞 Toast 抬高一档，两者不叠 */
     body.kanso-preview-on #lg-toasts { bottom: 54px; }
     .lg-toast { pointer-events: auto; display: flex; gap: 9px; align-items: flex-start; position: relative; overflow: hidden; background: rgba(21, 28, 35, 0.96); border: 1px solid var(--line); border-left-width: 3px; border-radius: 7px; padding: 8px 10px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); cursor: pointer; }
