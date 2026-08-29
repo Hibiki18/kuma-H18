@@ -11,24 +11,72 @@
       --voice-dmg-mid: #ffc46b;
       --voice-dmg-heavy: #ff8585;
       --voice-dmg-sunk: #c5a3f0;
+      --wedding: #ff8fd6;
+      --wedding-lit: #ffe0f3;
+      --motion-fast: 150ms;
     }
     * { box-sizing: border-box; }
     html, body, #game-host { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #050708; }
     #game-host { display: grid; place-items: center; container-type: size; }
     #game-wrapper { position: relative; width: min(100cqw, calc(100cqh * 5 / 3)); aspect-ratio: 5 / 3; overflow: hidden; background: #000; }
     #game-webview { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #voice-subtitle { position: absolute; z-index: 5; left: 8%; right: 8%; bottom: 3%; display: flex; justify-content: center; gap: 8px; padding: 8px 14px; border: 1px solid rgba(255,255,255,.16); background: rgba(4,8,11,.84); color: #eef5f7; opacity: 0; transform: translateY(8px); transition: opacity .18s, transform .18s; pointer-events: none; text-align: center; }
-    #voice-subtitle.show { opacity: 1; transform: none; }
-    #voice-subtitle.voice-wedding { color: #ffc8df; border-color: rgba(255,143,188,.55); }
-    #voice-danmaku { position: absolute; z-index: 5; inset: 0; overflow: hidden; pointer-events: none; }
-    .voice-danmaku-item { position: absolute; top: calc(8% + var(--voice-lane) * 10%); width: max-content; max-width: 75%; padding: 4px 8px; color: white; background: rgba(0,0,0,.58); text-shadow: 0 1px 2px #000; animation: danmaku var(--voice-duration) linear forwards; }
-    .voice-danmaku-item.friendly { left: 100%; }
-    .voice-danmaku-item.enemy { right: 100%; animation-name: danmaku-reverse; }
-    .voice-danmaku-item.dmg-light { color: var(--voice-dmg-light); }
-    .voice-danmaku-item.dmg-mid { color: var(--voice-dmg-mid); }
-    .voice-danmaku-item.dmg-heavy { color: var(--voice-dmg-heavy); }
-    .voice-danmaku-item.dmg-sunk { color: var(--voice-dmg-sunk); }
-    .voice-danmaku-item.voice-wedding { color: #ffc8df; }
+    #voice-danmaku {
+      position: absolute; z-index: 8; inset: 3.5% 0 auto; height: 42%;
+      overflow: hidden; pointer-events: none; background: transparent;
+    }
+    #voice-danmaku .voice-danmaku-item {
+      position: absolute; top: calc(var(--voice-lane) * 1.8em);
+      display: block; width: max-content; max-width: none; white-space: nowrap;
+      font-size: clamp(13px, 1.45vw, 19px); font-weight: 650; line-height: 1.55;
+      letter-spacing: .01em;
+      animation-duration: var(--voice-duration);
+      animation-timing-function: linear;
+      animation-fill-mode: forwards;
+      text-shadow:
+        -1px -1px 1px rgba(0, 0, 0, .96),
+        1px -1px 1px rgba(0, 0, 0, .96),
+        -1px 1px 1px rgba(0, 0, 0, .96),
+        1px 1px 1px rgba(0, 0, 0, .96),
+        0 2px 5px rgba(0, 0, 0, .92);
+    }
+    #voice-danmaku .voice-danmaku-item.friendly {
+      left: 0; color: #b9f0e4; animation-name: voice-danmaku-ltr;
+    }
+    #voice-danmaku .voice-danmaku-item.enemy {
+      right: 0; color: #ffc0c7; animation-name: voice-danmaku-rtl;
+    }
+    #voice-danmaku .voice-danmaku-item.dmg-light { color: var(--voice-dmg-light); }
+    #voice-danmaku .voice-danmaku-item.dmg-mid { color: var(--voice-dmg-mid); }
+    #voice-danmaku .voice-danmaku-item.dmg-heavy { color: var(--voice-dmg-heavy); }
+    #voice-danmaku .voice-danmaku-item.dmg-sunk { color: var(--voice-dmg-sunk); }
+    #voice-danmaku .voice-danmaku-item.voice-wedding { color: var(--wedding); }
+    @keyframes voice-danmaku-ltr {
+      from { left: 0; transform: translateX(-50%); }
+      to { left: 100%; transform: translateX(0); }
+    }
+    @keyframes voice-danmaku-rtl {
+      from { right: 0; transform: translateX(50%); }
+      to { right: 100%; transform: translateX(0); }
+    }
+    #voice-subtitle {
+      position: absolute; z-index: 7; left: 4%; right: 4%; bottom: 3.5%;
+      display: block; pointer-events: none; background: transparent;
+      color: #f4f8fb; text-align: center; font-size: clamp(13px, 1.55vw, 20px);
+      font-weight: 650; line-height: 1.45; letter-spacing: .01em;
+      opacity: 0; transform: translateY(7px);
+      transition: opacity var(--motion-fast) ease, transform var(--motion-fast) ease;
+      text-shadow:
+        -1px -1px 1px rgba(0, 0, 0, .95),
+        1px -1px 1px rgba(0, 0, 0, .95),
+        -1px 1px 1px rgba(0, 0, 0, .95),
+        1px 1px 1px rgba(0, 0, 0, .95),
+        0 2px 5px rgba(0, 0, 0, .95);
+    }
+    #voice-subtitle.show { opacity: 1; transform: translateY(0); }
+    #voice-subtitle .voice-subtitle-speaker { color: #8fe0cc; white-space: nowrap; }
+    #voice-subtitle .voice-subtitle-line { overflow-wrap: anywhere; }
+    #voice-subtitle.voice-wedding .voice-subtitle-line { color: var(--wedding); }
+    #voice-subtitle.voice-wedding .voice-subtitle-speaker { color: var(--wedding-lit); }
     #game-following-effects { position: absolute; z-index: 6; inset: 0; display: none; background: #000; pointer-events: none; }
     #game-following-effects.armed { display: block; }
     #game-following-effects.running { animation: game-following-glow ease-in-out both; }
@@ -42,8 +90,6 @@
     .lg-banner .copy span { color: #a9bac1; }
     .lg-banner .actions { display: flex; gap: 5px; }
     .lg-banner button { height: 26px; border: 1px solid #3b4c53; border-radius: 4px; background: #111a1e; color: #dce8ed; cursor: pointer; }
-    @keyframes danmaku { to { transform: translateX(calc(-100vw - 100%)); } }
-    @keyframes danmaku-reverse { to { transform: translateX(calc(100vw + 100%)); } }
     #lg-toasts { position: absolute; z-index: 7; right: 12px; bottom: 12px; width: min(330px, 44%); display: grid; gap: 7px; }
     .lg-toast { position: relative; display: flex; gap: 8px; padding: 9px 30px 10px 10px; border: 1px solid #3a4850; background: rgba(12,18,22,.94); color: #dce8ed; box-shadow: 0 5px 20px rgba(0,0,0,.35); }
     .lg-toast.ok { border-color: #39785a; } .lg-toast.warn { border-color: #a37c32; } .lg-toast.danger { border-color: #a54c52; }

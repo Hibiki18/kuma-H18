@@ -4918,14 +4918,16 @@ test('game voice requests show Chinese-first UI captions and directional battle 
   assert.match(subtitle, /if \(mg\.sortie\?\.active && mg\.sortie\.practice\) return/)
   assert.match(subtitle, /cue\.voiceId >= 30 && cue\.voiceId <= 53/)
   assert.match(renderer, /initVoiceSubtitles\(broadcaster\)/)
-  assert.match(html, /#voice-subtitle \{[^}]*pointer-events: none/)
+  assert.match(html, /#voice-subtitle \{[^}]*pointer-events: none; background: transparent/)
+  assert.doesNotMatch(html, /#voice-subtitle \{[^}]*background: rgba/)
   assert.match(html, /id="voice-subtitle" aria-live="polite"/)
-  assert.match(html, /#voice-danmaku \{[^}]*pointer-events: none/)
-  assert.match(html, /\.voice-danmaku-item \{[^}]*width: max-content/)
-  assert.match(html, /\.voice-danmaku-item\.friendly \{ left: 100%; \}/)
-  assert.match(html, /\.voice-danmaku-item\.enemy \{ right: 100%; animation-name: danmaku-reverse; \}/)
-  assert.match(html, /@keyframes danmaku/)
-  assert.match(html, /@keyframes danmaku-reverse/)
+  assert.match(html, /#voice-danmaku \{[^}]*pointer-events: none; background: transparent/)
+  assert.match(html, /#voice-danmaku \.voice-danmaku-item \{[^}]*width: max-content/)
+  assert.doesNotMatch(html, /#voice-danmaku \.voice-danmaku-item \{[^}]*background:/)
+  assert.match(html, /\.voice-danmaku-item\.friendly \{\s*left: 0;[^}]*animation-name: voice-danmaku-ltr/)
+  assert.match(html, /\.voice-danmaku-item\.enemy \{\s*right: 0;[^}]*animation-name: voice-danmaku-rtl/)
+  assert.match(html, /@keyframes voice-danmaku-ltr/)
+  assert.match(html, /@keyframes voice-danmaku-rtl/)
   assert.match(html, /id="voice-danmaku" aria-live="polite"/)
 })
 
@@ -11820,8 +11822,9 @@ test('婚礼台词的字幕按语音槽位精确匹配，不靠时间窗，也�
   assert.match(presenter, /tone === 'wedding' \? 'voice-wedding' : `dmg-\$\{tone\}`/)
 
   // ③ 样式：整条（含舰名）染粉，走 token
-  assert.match(html, /#voice-subtitle\.voice-wedding \{ color: #ffc8df;/)
-  assert.match(html, /\.voice-danmaku-item\.voice-wedding \{ color: #ffc8df; \}/)
+  assert.match(html, /#voice-subtitle\.voice-wedding \.voice-subtitle-line \{ color: var\(--wedding\); \}/)
+  assert.match(html, /#voice-subtitle\.voice-wedding \.voice-subtitle-speaker \{ color: var\(--wedding-lit\); \}/)
+  assert.match(html, /\.voice-danmaku-item\.voice-wedding \{ color: var\(--wedding\); \}/)
 })
 
 test('友方被击沉：艦素界面失色到返港，游戏画面不动，编队卡碎裂，且可整体关掉', () => {
