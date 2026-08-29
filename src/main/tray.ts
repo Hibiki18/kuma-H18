@@ -20,6 +20,7 @@ const ICON_PATH = path.join(ROOT, 'assets', 'branding', 'kuma.ico')
 
 let tray: Tray | null = null
 let getWindow: () => BrowserWindow | null = () => null
+let getGameWindow: () => BrowserWindow | null = () => null
 let unread = 0
 let dnd = false
 // 退出中：close 事件此时必须放行，否则「退出艦素」会被隐藏逻辑吃掉，永远退不掉
@@ -36,6 +37,11 @@ export const showMainWindow = () => {
   if (!win || win.isDestroyed()) return
   if (!win.isVisible()) win.show()
   if (win.isMinimized()) win.restore()
+  const game = getGameWindow()
+  if (game && !game.isDestroyed()) {
+    if (game.isMinimized()) game.restore()
+    if (!game.isVisible()) game.show()
+  }
   win.focus()
 }
 
@@ -91,8 +97,12 @@ export const destroyTray = () => {
  * 装托盘。必须在主窗口创建之后调用。
  * 冒烟模式下不装：托盘会让进程在窗口关闭后继续活着，冒烟就永远等不到退出。
  */
-export const installTray = (resolveWindow: () => BrowserWindow | null) => {
+export const installTray = (
+  resolveWindow: () => BrowserWindow | null,
+  resolveGameWindow: () => BrowserWindow | null = () => null,
+) => {
   getWindow = resolveWindow
+  getGameWindow = resolveGameWindow
   app.on('before-quit', () => {
     quitting = true
   })

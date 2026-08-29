@@ -20,6 +20,7 @@ export type SettingsSectionId = 'ui' | 'archive' | 'network' | 'lode' | 'health'
  */
 export type SettingsCardId =
   | 'zoom'
+  | 'game-window'
   | 'ui-hints'
   | 'tray'
   | 'game-audio'
@@ -57,7 +58,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     label: '界面',
     // 看得见、听得见的那些：开了就当场变样，所以排第一，也是默认落点。
     // 自检那张紧跟着音量卡——它诊断的就是那三条滑条，隔开摆反而要来回找
-    cards: ['zoom', 'ui-hints', 'tray', 'game-audio', 'game-audio-selftest'],
+    cards: ['zoom', 'game-window', 'ui-hints', 'tray', 'game-audio', 'game-audio-selftest'],
   },
   {
     id: 'archive',

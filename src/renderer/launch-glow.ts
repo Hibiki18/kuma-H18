@@ -59,12 +59,18 @@ import {
   type LaunchStaggerTiming,
   type LaunchWelcomeSignal,
 } from '../shared/launch-glow'
+import type { GameOverlayEvent } from '../shared/game-window'
 
 const ARMED_CLASS = 'kanso-glow'
 const RUN_CLASS = 'kanso-glow-run'
 const VEIL_ID = 'game-glow'
 const WELCOME_ID = 'kanso-welcome'
 const WELCOME_OUT_CLASS = 'kw-out'
+
+const publishFollowingEffect = (event: Extract<GameOverlayEvent, { kind: 'launch-glow' }>) => {
+  if (typeof document.dispatchEvent !== 'function' || typeof CustomEvent === 'undefined') return
+  document.dispatchEvent(new CustomEvent('kanso:game-host-overlay', { detail: event }))
+}
 
 /**
  * 逐元素的进场标记：`el.dataset.kansoIn = <幕的标记>`，CSS 靠 `[data-kanso-in="…"]` 上动画。
@@ -467,10 +473,14 @@ export const armLaunchWelcome = (enabled: boolean): LaunchWelcomeHandle | null =
 export const armLaunchGlow = (enabled: boolean): LaunchGlowHandle | null => {
   if (!enabled) return null
   if (typeof document === 'undefined' || !document.body) return null
+  publishFollowingEffect({ kind: 'launch-glow', phase: 'arm' })
   if (reduceMotion()) return null
 
   const gameArea = document.querySelector<HTMLElement>('#game-area')
-  if (!gameArea) return null
+  if (!gameArea) {
+    publishFollowingEffect({ kind: 'launch-glow', phase: 'end' })
+    return null
+  }
 
   const body = document.body
   const veil = document.createElement('div')
@@ -534,6 +544,7 @@ export const armLaunchGlow = (enabled: boolean): LaunchGlowHandle | null => {
     for (const el of touched) clearAnimation(el)
     touched.length = 0
     veil.remove()
+    publishFollowingEffect({ kind: 'launch-glow', phase: 'end' })
   }
 
   /** 整场落幕（各幕都放完 / 用户点了一下 / 看门狗到点）。幂等。 */
@@ -767,6 +778,14 @@ export const armLaunchGlow = (enabled: boolean): LaunchGlowHandle | null => {
       if (step.target.kind !== 'game' && step.delay + step.duration === litUntil) {
         lastLit = el
         lastLitAnimation = el.style.animationName
+      }
+      if (step.target.kind === 'game') {
+        publishFollowingEffect({
+          kind: 'launch-glow',
+          phase: 'run',
+          delayMs: step.delay,
+          durationMs: step.duration,
+        })
       }
     }
     // 两个信号，各管一件事：

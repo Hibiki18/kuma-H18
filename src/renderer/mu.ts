@@ -337,6 +337,24 @@ export const toggleFocus = (): boolean => {
   return layout.focus
 }
 
+export const setFocus = (enabled: boolean): boolean => {
+  if (layout.focus === enabled) return layout.focus
+  layout.focus = enabled
+  document.querySelector('#app')!.classList.toggle('focus', enabled)
+  refreshRail()
+  saveLayout()
+  return layout.focus
+}
+
+/** Derive the detached workbench widths without changing the persisted dock sizes. */
+export const setGameDetachedLayout = (enabled: boolean) => {
+  const app = document.querySelector<HTMLElement>('#app')
+  if (!app) return
+  app.classList.toggle('game-detached', enabled)
+  app.style.setProperty('--game-detached-left', `${Math.max(MIN_DOCK, layout.dockSize.left)}`)
+  app.style.setProperty('--game-detached-right', `${Math.max(MIN_DOCK, layout.dockSize.right)}`)
+}
+
 // ---- 激活 ----
 
 const activateIn = (dock: DockId, gi: number, id: string) => {
@@ -716,6 +734,9 @@ const wireDockSplitter = (dock: DockId) => {
         else size = Math.min(Math.max(window.innerHeight - y, MIN_DOCK), maxH)
         layout.dockSize[dock] = Math.round(size)
         dockEl(dock).style.flexBasis = `${layout.dockSize[dock]}px`
+        if (document.querySelector('#app')?.classList.contains('game-detached')) {
+          setGameDetachedLayout(true)
+        }
       },
       () => {},
     )

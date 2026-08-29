@@ -4814,17 +4814,18 @@ test('battle trail abbreviates trailing state and never exposes a horizontal scr
 
 test('game voice requests show Chinese-first UI captions and directional battle danmaku', () => {
   const resource = fs.readFileSync(new URL('../src/main/kcs-resource.ts', import.meta.url), 'utf8')
-  const main = fs.readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
+  const hostManager = fs.readFileSync(new URL('../src/main/game-host-manager.ts', import.meta.url), 'utf8')
   const voice = fs.readFileSync(new URL('../src/renderer/kcs-voice.ts', import.meta.url), 'utf8')
   const subtitle = fs.readFileSync(new URL('../src/renderer/voice-subtitle.ts', import.meta.url), 'utf8')
   const abyssNames = fs.readFileSync(new URL('../src/renderer/abyssal-name.ts', import.meta.url), 'utf8')
   const renderer = fs.readFileSync(new URL('../src/renderer/index.ts', import.meta.url), 'utf8')
-  const html = fs.readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
+  const html = fs.readFileSync(new URL('../src/renderer/game-host.html', import.meta.url), 'utf8')
+  const presenter = fs.readFileSync(new URL('../src/renderer/game-overlay-presenter.ts', import.meta.url), 'utf8')
   const catalog = fs.readFileSync(new URL('../src/renderer/modules/ji.ts', import.meta.url), 'utf8')
 
   assert.match(resource, /details\.webContentsId === gameWebContentsId/)
   assert.match(resource, /broadcaster\.emit\('kancolle\.voice'/)
-  assert.match(main, /setKcsResourceGameWebContentsId\(webContent\.id\)/)
+  assert.match(hostManager, /setKcsResourceGameWebContentsId\(guest\.id\)/)
   assert.match(voice, /export const resolveVoiceRequest/)
   assert.match(voice, /export const extraVoiceUrl/)
   assert.match(voice, /\/kcs\/sound\/kc\$\{directory\}\/\$\{voiceId\}\.mp3/)
@@ -4894,9 +4895,10 @@ test('game voice requests show Chinese-first UI captions and directional battle 
   // 2026-08-25 查表序列重构：形态在循环里就选定了，取文本改用循环变量 id
   assert.match(subtitle, /const zhLine = captionText\(subtitleZh\[`\$\{id\}`\]\?\.\[key\]\)/)
   assert.match(subtitle, /: captionText\(subtitleJa\[`\$\{id\}`\]\?\.\[key\]\)/)
-  assert.match(subtitle, /speaker\.textContent =/)
-  assert.match(subtitle, /line\.textContent = text/)
-  assert.match(subtitle, /item\.textContent = speaker \? `\$\{speaker\}：\$\{text\}` : text/)
+  assert.match(subtitle, /publishGameOverlay\(\{\s*kind: 'caption'/)
+  assert.match(presenter, /speaker\.textContent = event\.speaker/)
+  assert.match(presenter, /line\.textContent = event\.text/)
+  assert.match(presenter, /item\.textContent = event\.speaker \? `\$\{event\.speaker\}：\$\{event\.text\}` : event\.text/)
   assert.match(subtitle, /if \(cue\.kind === 'enemy'\) return 'enemy'/)
   assert.match(
     subtitle,
@@ -4917,16 +4919,16 @@ test('game voice requests show Chinese-first UI captions and directional battle 
   assert.match(subtitle, /cue\.voiceId >= 30 && cue\.voiceId <= 53/)
   assert.match(renderer, /initVoiceSubtitles\(broadcaster\)/)
   assert.match(html, /#voice-subtitle \{[^}]*pointer-events: none; background: transparent/)
+  assert.doesNotMatch(html, /#voice-subtitle \{[^}]*background: rgba/)
   assert.match(html, /id="voice-subtitle" aria-live="polite"/)
   assert.match(html, /#voice-danmaku \{[^}]*pointer-events: none; background: transparent/)
-  assert.match(html, /\.voice-danmaku-item \{[^}]*width: max-content; max-width: none; white-space: nowrap/)
-  assert.match(html, /\.voice-danmaku-item\.friendly \{[^}]*voice-danmaku-ltr/)
-  assert.match(html, /\.voice-danmaku-item\.enemy \{[^}]*voice-danmaku-rtl/)
-  assert.match(html, /@keyframes voice-danmaku-ltr \{\s*from \{ left: 0; transform: translateX\(-50%\); \}/)
-  assert.match(html, /@keyframes voice-danmaku-rtl \{\s*from \{ right: 0; transform: translateX\(50%\); \}/)
-  assert.match(html, /to \{ left: 100%; transform: translateX\(0\); \}/)
-  assert.match(html, /to \{ right: 100%; transform: translateX\(0\); \}/)
-  assert.match(html, /id="voice-danmaku" aria-live="polite"/)
+  assert.match(html, /#voice-danmaku \.voice-danmaku-item \{[^}]*width: max-content/)
+  assert.doesNotMatch(html, /#voice-danmaku \.voice-danmaku-item \{[^}]*background:/)
+  assert.match(html, /\.voice-danmaku-item\.friendly \{\s*left: 0;[^}]*animation-name: voice-danmaku-ltr/)
+  assert.match(html, /\.voice-danmaku-item\.enemy \{\s*right: 0;[^}]*animation-name: voice-danmaku-rtl/)
+  assert.match(html, /@keyframes voice-danmaku-ltr/)
+  assert.match(html, /@keyframes voice-danmaku-rtl/)
+  assert.match(html, /id="voice-danmaku" aria-live="polite" aria-atomic="false"/)
 })
 
 test('localization lodes accept bounded bilingual entities and reject HTML-shaped ids', () => {
@@ -5117,6 +5119,10 @@ test('the Windows one-click launcher starts from its own folder and preserves st
   assert.match(packager, /executableName: 'kuma'/)
   assert.match(packager, /icon,/)
   assert.match(packager, /asar: true/)
+  assert.match(packager, /packageLock\.packages\?\.\['node_modules\/electron'\]\?\.version/)
+  assert.match(packager, /electronVersion,/)
+  assert.doesNotMatch(packager, /devDependencies\.electron\.replace/)
+  assert.match(packager, /electronZipDir: cachedElectronZip \? path\.dirname\(cachedElectronZip\) : undefined/)
   // 杀软持着刚解压的 exe，packager 紧接着 rename 整个模板目录 → EPERM。
   // 等待必须在 rename **之前**（afterExtract）；等在「失败后重试前」没用，
   // 下一轮是新解压的目录（实测外层退避到 5/10/20/30/30 秒仍每次都挂）。
@@ -5843,7 +5849,7 @@ test('托盘只做入口，不改默认的退出语义、也不自己判定未�
   // 收进托盘后 renderer 的 window.focus() 是无效的，通知点开要走主进程 show()
   assert.match(notifications, /void showMainWindow\(\)/)
   assert.match(main, /ipcMain\.handle\('window:show', \(\) => showMainWindow\(\)\)/)
-  assert.match(main, /app\.on\('second-instance', \(\) => showMainWindow\(\)\)/)
+  assert.match(main, /app\.on\('second-instance', \(\) => \{\s*showMainWindow\(\)\s*gameHostManager\?\.restoreWindows\(\)/)
 })
 
 test('装备有了在籍轴，且与舰娘那一侧同口径', () => {
@@ -9834,7 +9840,7 @@ test('三维成长分层：一手上限优先、kcwiki 的 -1 当缺、缺资料
   assert.match(catalog, /growthRows\.every\(\(row\) => !row\)/)
 })
 
-test('受损语音弹幕按播放时刻血量分四档，通知弹窗锚在游戏画面右下', () => {
+test('受损语音弹幕按播放时刻血量分四档，通知展示随游戏宿主移动', () => {
   // 弹幕着色（用户 2026-08-11，小破/中破/大破/击沉四档）：我方 19/20/21 是
   // 全舰统一受损语音槽、22=轟沈（wikiwiki 语音表 100+ 舰实证），深海
   // damage 槽=音轨后缀 30/31、sunk=40/41。受损音轨按战斗视图实际血量分：
@@ -9849,21 +9855,19 @@ test('受损语音弹幕按播放时刻血量分四档，通知弹窗锚在游�
   assert.match(subtitle, /if \(worst <= 0\.5\) return 'mid'/)
   assert.match(subtitle, /return 'light'/)
   assert.match(subtitle, /if \(worst == null\) return null/)
-  assert.match(subtitle, /dmg-\$\{tone\}/)
-  const html = fs.readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
+  const hostHtml = fs.readFileSync(new URL('../src/renderer/game-host.html', import.meta.url), 'utf8')
   for (const tone of ['light', 'mid', 'heavy', 'sunk']) {
     assert.match(
-      html,
+      hostHtml,
       new RegExp(`\\.voice-danmaku-item\\.dmg-${tone} \\{ color: var\\(--voice-dmg-${tone}\\); \\}`),
     )
   }
-  // 通知弹窗（用户 2026-08-11）：锚游戏画面右下角、宽度压 250（他嫌 300 宽）；
-  // 容器收起时退回 body，通知不能跟着容器一起隐身
+  // 业务判定留在铃，宿主只收已经判定好的展示 DTO；这样通知仍锚在
+  // 同一游戏矩形右下角并随宿主迁移。
   const bell = fs.readFileSync(new URL('../src/renderer/modules/lg.ts', import.meta.url), 'utf8')
-  assert.match(bell, /wrapper && wrapper\.clientWidth > 0 \? wrapper : document\.body/)
-  assert.match(bell, /if \(toastBox\.parentElement !== host\) host\.appendChild\(toastBox\)/)
-  assert.match(html, /#game-wrapper > #lg-toasts \{ position: absolute; \}/)
-  assert.match(html, /#lg-toasts \{ position: fixed;[^\n]*width: min\(250px/)
+  assert.match(bell, /publishGameToast\(/)
+  assert.match(hostHtml, /#lg-toasts \{ position: absolute;/)
+  assert.match(hostHtml, /right: 12px; bottom: 12px; width: min\(330px, 44%\)/)
 })
 
 test('通关阵容:打赢过 Boss 的编成聚合进海域图鉴,作个人带路参考', () => {
@@ -11800,7 +11804,8 @@ test('ケッコンカッコカリ：一手信号是 path 到达，认不出也�
 
 test('婚礼台词的字幕按语音槽位精确匹配，不靠时间窗，也不粘在下一句上', () => {
   const subtitle = fs.readFileSync(new URL('../src/renderer/voice-subtitle.ts', import.meta.url), 'utf8')
-  const html = fs.readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
+  const html = fs.readFileSync(new URL('../src/renderer/game-host.html', import.meta.url), 'utf8')
+  const presenter = fs.readFileSync(new URL('../src/renderer/game-overlay-presenter.ts', import.meta.url), 'utf8')
 
   // ① 判据是槽位 24（ケッコンカッコカリ），不是「婚礼报文后 N 秒内该舰的字幕」。
   // 槽位天然只作用于开口的那一艘，也就没有「窗口漂到别人头上」这种失效模式。
@@ -11814,16 +11819,16 @@ test('婚礼台词的字幕按语音槽位精确匹配，不靠时间窗，也�
   // 28 号槽是「ケッコン後母港」——婚后每次点她都会响，属于日常台词，不染
   assert.doesNotMatch(subtitle, /=== 28|WEDDING_PORT_SLOT/, '把婚后日常母港台词也染粉了')
 
-  // ② 底部字幕是同一个常驻元素反复复用：粉必须逐句摘挂，不能粘在下一句上
-  assert.match(subtitle, /host\.classList\.remove\('voice-wedding'\)\s*\n\s*if \(tone === 'wedding'\) host\.classList\.add\('voice-wedding'\)/)
-  assert.match(subtitle, /subtitle\?\.classList\.remove\('show', 'voice-wedding'\)/)
+  // ② 展示器每句都重设完整 className，清场也归零，不会把粉色粘到下一句。
+  assert.match(presenter, /subtitle\.className = toneClass\(event\.tone\)/)
+  assert.match(presenter, /subtitle\.className = ''/)
   // 婚礼不是伤害轴上的一档，class 名不许混进 dmg- 那一族
-  assert.match(subtitle, /tone === 'wedding' \? 'voice-wedding' : `dmg-\$\{tone\}`/)
+  assert.match(presenter, /tone === 'wedding' \? 'voice-wedding' : `dmg-\$\{tone\}`/)
 
   // ③ 样式：整条（含舰名）染粉，走 token
   assert.match(html, /#voice-subtitle\.voice-wedding \.voice-subtitle-line \{ color: var\(--wedding\); \}/)
   assert.match(html, /#voice-subtitle\.voice-wedding \.voice-subtitle-speaker \{ color: var\(--wedding-lit\); \}/)
-  assert.match(html, /#voice-danmaku \.voice-danmaku-item\.voice-wedding \{ color: var\(--wedding\); \}/)
+  assert.match(html, /\.voice-danmaku-item\.voice-wedding \{ color: var\(--wedding\); \}/)
 })
 
 test('友方被击沉：艦素界面失色到返港，游戏画面不动，编队卡碎裂，且可整体关掉', () => {
@@ -11922,7 +11927,7 @@ test('友方被击沉：艦素界面失色到返港，游戏画面不动，编�
   )
   assert.match(settings, /击沉哀悼特效/)
   assert.match(settings, /setSunkEffectsEnabled\(next\)/)
-  assert.match(settings, /'kanso\.sunkEffects',\n\s*'kanso\.tray\.enabled'/, '默认开的项没进取反白名单：第一次点会「开→开」')
+  assert.match(settings, /'kanso\.sunkEffects',\r?\n\s*'kanso\.tray\.enabled'/, '默认开的项没进取反白名单：第一次点会「开→开」')
   // 通知那条不受开关影响——开关只管画不画
   const sunkDetector = lg.slice(lg.indexOf('let sunkSeen'), lg.indexOf('// ---- 通知中心面板 ----'))
   assert.doesNotMatch(

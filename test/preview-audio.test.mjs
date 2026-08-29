@@ -442,6 +442,10 @@ test('总音量乘上试听系数，仍旧钳在 [0, 1]', () => {
 test('三段链路上的 channel 名字对得上（渲染层 → 主进程 → 游戏页）', () => {
   const renderer = fs.readFileSync(new URL('../dist/renderer/index.js', import.meta.url), 'utf8')
   const main = fs.readFileSync(new URL('../dist/main/index.js', import.meta.url), 'utf8')
+  const gameHostManager = fs.readFileSync(
+    new URL('../dist/main/game-host-manager.js', import.meta.url),
+    'utf8',
+  )
   const preload = fs.readFileSync(
     new URL('../assets/preload/webview-preload.js', import.meta.url),
     'utf8',
@@ -449,7 +453,7 @@ test('三段链路上的 channel 名字对得上（渲染层 → 主进程 → �
 
   assert.ok(renderer.includes('kanso:preview-audio-active'), '渲染层没在发这条 IPC')
   assert.ok(main.includes('kanso:preview-audio-active'), '主进程没在收这条 IPC')
-  assert.ok(main.includes(PREVIEW_DUCK_CHANNEL), '主进程没往游戏页转这条 IPC')
+  assert.ok(gameHostManager.includes(PREVIEW_DUCK_CHANNEL), '游戏宿主管理器没往游戏页转这条 IPC')
   assert.ok(preload.includes('installPreviewDuck'), '游戏页 preload 没装上收货口')
   // 压游戏声音是**瞬态内存态**：这条路上任何一处落盘，崩溃之后都会留下一台哑游戏
   assert.ok(

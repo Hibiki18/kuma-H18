@@ -63,6 +63,8 @@ await build({
 await build({
   entryPoints: {
     index: path.join(root, 'src', 'renderer', 'index.ts'),
+    'game-host': path.join(root, 'src', 'renderer', 'game-host.ts'),
+    'game-window': path.join(root, 'src', 'renderer', 'game-window.ts'),
     'resource-trend': path.join(root, 'src', 'renderer', 'resource-trend-window.ts'),
     'quest-tree': path.join(root, 'src', 'renderer', 'quest-tree-window.ts'),
   },
@@ -88,6 +90,8 @@ await build({
 
 mkdirSync(rendererOut, { recursive: true })
 cpSync(path.join(root, 'src', 'renderer', 'index.html'), path.join(rendererOut, 'index.html'))
+cpSync(path.join(root, 'src', 'renderer', 'game-host.html'), path.join(rendererOut, 'game-host.html'))
+cpSync(path.join(root, 'src', 'renderer', 'game-window.html'), path.join(rendererOut, 'game-window.html'))
 cpSync(
   path.join(root, 'src', 'renderer', 'resource-trend.html'),
   path.join(rendererOut, 'resource-trend.html'),

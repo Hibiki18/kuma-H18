@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>game host reparent PoC</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #host { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #050708; }
+    #host { position: relative; }
+    webview { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #host-overlay {
+      position: absolute; z-index: 10; top: 12px; right: 12px; width: 120px; height: 36px;
+      border: 1px solid #62b9d9; background: #10232b; color: #e8f7fc;
+    }
+  </style>
+</head>
+<body>
+  <main id="host">
+    <button id="host-overlay" type="button">overlay probe</button>
+  </main>
+  <script>
+    const query = new URLSearchParams(location.search)
+    const view = document.createElement('webview')
+    view.id = 'game-webview'
+    view.setAttribute('allowpopups', '')
+    view.setAttribute('nodeintegrationinsubframes', '')
+    view.setAttribute('disablewebsecurity', '')
+    view.setAttribute(
+      'webpreferences',
+      'allowRunningInsecureContent=no, backgroundThrottling=no, contextIsolation=yes, sandbox=no, nodeIntegrationInSubFrames=yes',
+    )
+    view.setAttribute('preload', query.get('preload'))
+    view.src = query.get('guest')
+    document.querySelector('#host').prepend(view)
+    window.__hostPoc = { instance: crypto.randomUUID(), overlayClicks: 0 }
+    document.querySelector('#host-overlay').addEventListener('click', () => {
+      window.__hostPoc.overlayClicks += 1
+    })
+  </script>
+</body>
+</html>

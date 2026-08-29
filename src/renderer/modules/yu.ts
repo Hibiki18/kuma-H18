@@ -11,6 +11,11 @@ import { setVoiceCaptionsEnabled } from '../voice-subtitle'
 import { setOverlayEntranceEnabled } from '../launch-glow'
 import { reloadVoiceAbsent } from '../voice-probe'
 import {
+  executeGameCommand,
+  getGameWindowSnapshot,
+  setGameWindowMode,
+} from '../game-window-client'
+import {
   esc,
   fmtDateTime,
   getUiZoom,
@@ -307,28 +312,18 @@ const toggleHtml = (key: string, label: string, note: string, value: boolean, di
     <span class="ysw${value ? ' on' : ''}" ${disabled ? `title="${esc(hint)}"` : `data-toggle="${esc(key)}"`}><i></i></span>
   </div>`
 
-/** 游戏页那个 webview。只用到 executeJavaScript，所以按结构写类型，不牵 electron 的类型进来 */
-type GameWebview = HTMLElement & { executeJavaScript(code: string): Promise<unknown> }
-
 /**
  * 从游戏页读回音频钩子的现况。走的是和「截图」同一条路（`webview.executeJavaScript`），
  * 只读一个统计对象出来，不发请求、不碰播放。
  */
 const readAudioSelfTest = (): void => {
   if (audioSelfTestReading) return
-  const webview = document.querySelector<GameWebview>('#game-wrapper webview')
-  if (!webview) {
-    audioSelfTest = null
-    audioSelfTestError = '游戏页还没挂上，等它出来再读'
-    render()
-    return
-  }
   audioSelfTestReading = true
   audioSelfTestError = null
-  void webview
-    .executeJavaScript('window.kansoGameAudioStats ? window.kansoGameAudioStats() : null')
+  void executeGameCommand({ type: 'audio-stats' })
     .then((result) => {
-      audioSelfTest = (result as GameAudioFrameStats[] | null) ?? []
+      if (!result.ok) throw new Error(result.message ?? '游戏页还没挂上，等它出来再读')
+      audioSelfTest = (result.value as GameAudioFrameStats[] | null) ?? []
     })
     .catch((error: unknown) => {
       audioSelfTest = null
@@ -917,6 +912,18 @@ const zoomCardHtml = (): string => {
     <div class="ynote">快捷键 <span class="mono">Ctrl +</span> / <span class="mono">Ctrl -</span> / <span class="mono">Ctrl 0</span>（回到 115%）。</div>`
 }
 
+const gameWindowCardHtml = (): string => {
+  const state = getGameWindowSnapshot()
+  const mode = state.effectiveMode
+  const busy = !['EMBEDDED', 'DETACHED', 'RECOVERING'].includes(state.phase)
+  const chip = (value: 'embedded' | 'detached', label: string) =>
+    `<button type="button" class="ychip${mode === value ? ' on' : ''}${busy ? ' dis' : ''}" ` +
+      `data-game-window-mode="${value}" aria-pressed="${mode === value}"${busy ? ' disabled' : ''}>${label}</button>`
+  return `<div class="h"><b>游戏窗口</b><span class="aux">即时切换 · 游戏会话保持运行</span></div>
+    <div class="yline">${chip('embedded', '嵌入工作台')}${chip('detached', '独立窗口')}</div>
+    <div class="ynote">${esc(state.error?.message ?? (mode === 'detached' ? '游戏画面当前位于独立窗口。' : '默认模式，游戏画面位于工作台中央。'))}</div>`
+}
+
 // 抬头那句不能写死「即时生效」：这一卡里最后那条（启动点亮动画）说的是「下次启动生效」,
 // 两句摆在同一张卡上就是自相矛盾。改成留个口子，例外由那一条自己说清楚。
 const uiHintsCardHtml = (): string => `<div class="h"><b>界面提示</b><span class="aux">即时生效 · 注明的除外</span></div>
@@ -1162,6 +1169,7 @@ const aboutCardHtml = (): string => `<div class="h"><b>关于</b></div>
  */
 const CARD_HTML: Record<SettingsCardId, () => string> = {
   zoom: zoomCardHtml,
+  'game-window': gameWindowCardHtml,
   'ui-hints': uiHintsCardHtml,
   tray: trayCardHtml,
   'game-audio': gameAudioCardHtml,
@@ -1236,6 +1244,13 @@ registerModule({
       if (crashRenderFrame) cancelAnimationFrame(crashRenderFrame)
       crashRenderFrame = 0
     })
+    const onGameWindowState = () => {
+      if (pane.classList.contains('active') && activeSection === 'ui') render()
+    }
+    el.ownerDocument?.addEventListener('kanso:game-window-state', onGameWindowState)
+    trackMountCleanup(() =>
+      el.ownerDocument?.removeEventListener('kanso:game-window-state', onGameWindowState),
+    )
     // 拖动期间每个 input 事件都同步 config.set = 一次阻塞 remote 调用 + 一次原子写盘，
     // 滑条肉眼发涩。150ms 尾随去抖：音量跟手感知不到延迟，写盘从几十次收敛到一两次。
     const volumeCommitTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -1610,6 +1625,14 @@ registerModule({
         if (mode === 'all' || mode === 'voice' || mode === 'bgm') {
           config.set('kanso.gameAudio.mode', mode)
           render()
+        }
+        return
+      }
+      const gameWindowChip = t.closest<HTMLElement>('[data-game-window-mode]')
+      if (gameWindowChip && !gameWindowChip.classList.contains('dis')) {
+        const mode = gameWindowChip.dataset.gameWindowMode
+        if (mode === 'embedded' || mode === 'detached') {
+          void setGameWindowMode(mode).finally(render)
         }
         return
       }
