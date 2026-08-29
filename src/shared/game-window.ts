@@ -53,7 +53,7 @@ export interface ModeSwitchResult {
 export type CaptionTone = 'light' | 'mid' | 'heavy' | 'sunk' | 'wedding'
 
 export type GameOverlayEvent =
-  | { kind: 'caption-clear' }
+  | { kind: 'caption-clear'; scope?: 'bottom' | 'all' }
   | {
       kind: 'launch-glow'
       phase: 'arm' | 'run' | 'end'
@@ -90,7 +90,10 @@ export type GameOverlayEvent =
       detail: string
       locked: boolean
       groupKey?: string
+      groupTitle?: string
+      count?: number
       action?: { token: string; label: string }
+      groupAction?: { token: string; label: string }
       durationMs?: number
     }
 
@@ -199,7 +202,12 @@ const textWithin = (value: unknown, max: number): value is string =>
 export const normalizeOverlayEvent = (value: unknown): GameOverlayEvent | null => {
   if (!value || typeof value !== 'object') return null
   const event = value as Record<string, unknown>
-  if (event.kind === 'caption-clear') return { kind: 'caption-clear' }
+  if (event.kind === 'caption-clear') {
+    if (event.scope == null) return { kind: 'caption-clear' }
+    return event.scope === 'bottom' || event.scope === 'all'
+      ? { kind: 'caption-clear', scope: event.scope }
+      : null
+  }
   if (event.kind === 'launch-glow') {
     if (!['arm', 'run', 'end'].includes(event.phase as string)) return null
     if (event.phase !== 'run') {
@@ -263,7 +271,12 @@ export const normalizeOverlayEvent = (value: unknown): GameOverlayEvent | null =
     if (!textWithin(event.title, 160) || !textWithin(event.detail, 1000)) return null
     if (typeof event.locked !== 'boolean') return null
     const action = event.action as Record<string, unknown> | undefined
-    if (action && (!textWithin(action.token, 100) || !textWithin(action.label, 80))) return null
+    const groupAction = event.groupAction as Record<string, unknown> | undefined
+    if (action && (!textWithin(action.token, 100) || !action.token || !textWithin(action.label, 80) || !action.label)) return null
+    if (groupAction && (!textWithin(groupAction.token, 100) || !groupAction.token || !textWithin(groupAction.label, 80) || !groupAction.label)) return null
+    if (event.groupTitle != null && !textWithin(event.groupTitle, 160)) return null
+    const count = event.count == null ? undefined : Number(event.count)
+    if (count != null && (!Number.isInteger(count) || count < 1 || count > 999)) return null
     return {
       kind: 'toast',
       id: event.id,
@@ -272,7 +285,12 @@ export const normalizeOverlayEvent = (value: unknown): GameOverlayEvent | null =
       detail: event.detail,
       locked: event.locked,
       groupKey: textWithin(event.groupKey, 100) ? event.groupKey : undefined,
+      groupTitle: textWithin(event.groupTitle, 160) ? event.groupTitle : undefined,
+      count,
       action: action ? { token: action.token as string, label: action.label as string } : undefined,
+      groupAction: groupAction
+        ? { token: groupAction.token as string, label: groupAction.label as string }
+        : undefined,
       durationMs: finite(event.durationMs)
         ? Math.min(30_000, Math.max(1_000, Math.round(event.durationMs)))
         : undefined,

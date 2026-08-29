@@ -169,7 +169,7 @@ const clearCaptionVisuals = () => {
   hourlyTimer = null
   for (const timer of lineTimers) clearTimeout(timer)
   lineTimers.clear()
-  publishGameOverlay({ kind: 'caption-clear' })
+  publishGameOverlay({ kind: 'caption-clear', scope: 'all' })
 }
 
 export const setVoiceCaptionsEnabled = (enabled: boolean) => {
@@ -642,14 +642,14 @@ const showSubtitle = ({ speaker: speakerText, text, tone, pathname }: CaptionLin
       if (generation !== captionGeneration) return
       const remaining = captionHideAtMs({ shownAtMs: shownAt, textLength, audioMs }) - Date.now()
       if (remaining <= 0) {
-        publishGameOverlay({ kind: 'caption-clear' })
+        publishGameOverlay({ kind: 'caption-clear', scope: 'bottom' })
         return
       }
       // 只续这一次：第二段到期直接退场，不再问第二遍
       if (hideTimer) clearTimeout(hideTimer)
       hideTimer = setTimeout(() => {
         hideTimer = null
-        publishGameOverlay({ kind: 'caption-clear' })
+        publishGameOverlay({ kind: 'caption-clear', scope: 'bottom' })
       }, remaining)
     })
   }, captionMinHoldMs(textLength))
@@ -801,6 +801,9 @@ const flushPending = () => {
 }
 
 export const initVoiceSubtitles = (broadcaster: VoiceBroadcaster) => {
+  // The host view survives workbench renderer reloads, so discard any overlay state
+  // whose controller timers belonged to the previous renderer instance.
+  clearCaptionVisuals()
   broadcaster.addListener('kancolle.voice', (event) => {
     if (!captionsEnabled) return
     if (!ready) {

@@ -1,6 +1,6 @@
 import { packager } from '@electron/packager'
 import { spawnSync } from 'child_process'
-import { copyFileSync, existsSync, readFileSync, rmSync } from 'fs'
+import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -19,6 +19,28 @@ const releaseDir = path.join(root, 'release')
 const tempDir = path.join(root, '.packager-tmp')
 const icon = path.join(root, 'assets', 'branding', 'kuma.ico')
 const packageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
+const packageLock = JSON.parse(readFileSync(path.join(root, 'package-lock.json'), 'utf8'))
+const electronVersion = packageLock.packages?.['node_modules/electron']?.version
+if (typeof electronVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(electronVersion)) {
+  throw new Error('package-lock.json 没有锁定可用的 Electron 精确版本')
+}
+
+const electronZipName = `electron-v${electronVersion}-win32-x64.zip`
+const electronCacheRoots = [
+  process.env.ELECTRON_CACHE,
+  process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'electron', 'Cache'),
+  process.env.XDG_CACHE_HOME && path.join(process.env.XDG_CACHE_HOME, 'electron'),
+  process.env.HOME && path.join(process.env.HOME, '.cache', 'electron'),
+].filter((value) => typeof value === 'string')
+const cachedElectronZip = electronCacheRoots.flatMap((root) => {
+  if (!existsSync(root)) return []
+  const direct = path.join(root, electronZipName)
+  if (existsSync(direct)) return [direct]
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(root, entry.name, electronZipName))
+    .filter(existsSync)
+})[0]
 
 for (const dir of [releaseDir, tempDir]) {
   if (path.dirname(dir) !== root) {
@@ -98,7 +120,11 @@ const options = {
   name: 'kuma',
   executableName: 'kuma',
   appVersion: packageJson.version,
-  electronVersion: packageJson.devDependencies.electron.replace(/^[^\d]*/, ''),
+  // package.json 写的是兼容范围，不能把范围下界误当成本次安装/验证过的版本。
+  electronVersion,
+  // @electron/get 在缓存命中后仍联网取 SHASUMS。离线时直接交给 packager
+  // 已由 Electron 安装流程校验并缓存的 ZIP；没有缓存才走正常下载与校验。
+  electronZipDir: cachedElectronZip ? path.dirname(cachedElectronZip) : undefined,
   icon,
   asar: true,
   prune: true,

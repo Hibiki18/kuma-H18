@@ -915,9 +915,10 @@ const zoomCardHtml = (): string => {
 const gameWindowCardHtml = (): string => {
   const state = getGameWindowSnapshot()
   const mode = state.effectiveMode
-  const busy = state.phase === 'DETACHING' || state.phase === 'ATTACHING'
+  const busy = !['EMBEDDED', 'DETACHED', 'RECOVERING'].includes(state.phase)
   const chip = (value: 'embedded' | 'detached', label: string) =>
-    `<span class="ychip${mode === value ? ' on' : ''}${busy ? ' dis' : ''}" data-game-window-mode="${value}">${label}</span>`
+    `<button type="button" class="ychip${mode === value ? ' on' : ''}${busy ? ' dis' : ''}" ` +
+      `data-game-window-mode="${value}" aria-pressed="${mode === value}"${busy ? ' disabled' : ''}>${label}</button>`
   return `<div class="h"><b>游戏窗口</b><span class="aux">即时切换 · 游戏会话保持运行</span></div>
     <div class="yline">${chip('embedded', '嵌入工作台')}${chip('detached', '独立窗口')}</div>
     <div class="ynote">${esc(state.error?.message ?? (mode === 'detached' ? '游戏画面当前位于独立窗口。' : '默认模式，游戏画面位于工作台中央。'))}</div>`

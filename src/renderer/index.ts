@@ -209,13 +209,14 @@ document.addEventListener('keydown', (e) => {
 })
 onUiZoom(() => scheduleEmbeddedGameBounds())
 initGameWindowClient(() => {
-  if (setFocus(false)) syncFocusBtn(false)
+  setFocus(false)
+  syncFocusBtn(false)
   focusBtn.disabled = true
 })
 document.addEventListener('kanso:game-window-state', ((event: CustomEvent) => {
   const detached = event.detail?.effectiveMode === 'detached' && event.detail?.phase !== 'ATTACHING'
   setGameDetachedLayout(detached)
-  focusBtn.disabled = detached || event.detail?.phase === 'DETACHING'
+  focusBtn.disabled = event.detail?.phase !== 'EMBEDDED'
 }) as EventListener)
 
 // ---- 启动点亮（测试性功能，钥里默认关）----

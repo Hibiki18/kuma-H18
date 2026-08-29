@@ -62,7 +62,8 @@ export class GameHostManager {
   private overlayWindowCount = 0
   private hostReady = false
   private readonly pendingOverlays: GameOverlayEvent[] = []
-  private readonly actionTokens = new Map<string, number>()
+  private readonly actionTokens = new Map<string, number | null>()
+  private readonly bannerActionTokens = new Map<string, string[]>()
 
   constructor(
     private readonly mainWindow: BrowserWindow,
@@ -232,7 +233,10 @@ export class GameHostManager {
       const rollbackWindow = sourceMode === 'embedded' ? this.mainWindow : this.gameWindow
       const rollbackBounds = sourceMode === 'embedded' ? this.embeddedBounds : this.detachedBounds
       try {
-        if (removedSource && rollbackWindow && !rollbackWindow.isDestroyed() && rollbackBounds) {
+        if (removedSource) {
+          if (!rollbackWindow || rollbackWindow.isDestroyed() || !rollbackBounds) {
+            throw new Error('ROLLBACK_SOURCE_UNAVAILABLE')
+          }
           if (attachedTarget && targetWindow && !targetWindow.isDestroyed()) {
             targetWindow.contentView.removeChildView(this.hostView)
           }
@@ -314,6 +318,7 @@ export class GameHostManager {
     this.hostReady = false
     this.pendingOverlays.length = 0
     this.actionTokens.clear()
+    this.bannerActionTokens.clear()
     this.saveDetachedWindowBounds()
     const view = this.hostView
     const guest = this.getGuest()
@@ -388,16 +393,29 @@ export class GameHostManager {
       guest.once('destroyed', () => {
         if (this.guestWebContentsId === guest.id) this.clearGuestId()
       })
-      guest.on('render-process-gone', (_goneEvent, details) => {
+      guest.once('render-process-gone', (_goneEvent, details) => {
         if (this.disposed || this.guestWebContentsId !== guest.id) return
         console.warn('[kanso] game guest renderer gone', details.reason, details.exitCode)
         this.phase = 'RECOVERING'
         this.error = { code: 'GAME_GUEST_CRASHED', message: '游戏页面崩溃，正在原位恢复。' }
-        this.clearGuestId()
         this.broadcastState()
-        if (!view.webContents.isDestroyed()) view.webContents.send('game-host:remount')
+        guest.once('destroyed', () => {
+          if (this.disposed || view.webContents.isDestroyed()) return
+          view.webContents.send('game-host:remount')
+        })
+        try {
+          guest.close()
+        } catch (closeError) {
+          this.error = {
+            code: 'GAME_GUEST_DESTROY_FAILED',
+            message: `游戏页面崩溃且无法安全销毁，请重启 kuma：${String(closeError)}`,
+          }
+          this.broadcastState()
+        }
       })
-      if (this.phase === 'RECOVERING') {
+      const guestRecovery =
+        this.error?.code === 'GAME_GUEST_CRASHED' || this.error?.code === 'GAME_GUEST_DESTROY_FAILED'
+      if (this.phase === 'RECOVERING' && guestRecovery) {
         this.phase = this.effectiveMode === 'detached' ? 'DETACHED' : 'EMBEDDED'
         this.error = undefined
       }
@@ -596,13 +614,22 @@ export class GameHostManager {
       const overlay = normalizeOverlayEvent(raw)
       if (!overlay) return
       this.pruneActionTokens()
-      const actions = overlay.kind === 'toast'
-        ? [overlay.action]
-        : overlay.kind === 'banner'
-          ? [overlay.go, overlay.dismiss]
-          : []
-      for (const action of actions) {
-        if (action) this.actionTokens.set(action.token, Date.now() + 60_000)
+      if (overlay.kind === 'banner') {
+        this.releaseBannerActionTokens(overlay.id)
+        const tokens = [overlay.go.token, overlay.dismiss.token]
+        for (const token of tokens) this.actionTokens.set(token, null)
+        this.bannerActionTokens.set(overlay.id, tokens)
+      } else if (overlay.kind === 'banner-remove') {
+        this.releaseBannerActionTokens(overlay.id)
+      } else if (overlay.kind === 'banner-clear') {
+        for (const id of [...this.bannerActionTokens.keys()]) this.releaseBannerActionTokens(id)
+      } else if (overlay.kind === 'toast') {
+        const expiresAt = overlay.locked
+          ? null
+          : Date.now() + (overlay.durationMs ?? 8000) + 5000
+        for (const action of [overlay.action, overlay.groupAction]) {
+          if (action) this.actionTokens.set(action.token, expiresAt)
+        }
       }
       if (this.hostReady) this.hostView.webContents.send('game-host:overlay', overlay)
       else {
@@ -615,6 +642,13 @@ export class GameHostManager {
       this.pruneActionTokens()
       if (!this.actionTokens.delete(token)) return
       if (!this.mainWindow.isDestroyed()) this.mainWindow.webContents.send('game-host:action', token)
+    })
+    ipcMain.on('game-host:release-action', (event, token: unknown) => {
+      if (!this.isHost(event) || typeof token !== 'string' || token.length > 100) return
+      if (!this.actionTokens.delete(token)) return
+      if (!this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('game-host:release-action', token)
+      }
     })
     this.mainWindow.webContents.on('did-navigate', () => {
       this.boundsSeq.embedded = 0
@@ -642,6 +676,7 @@ export class GameHostManager {
       'game-host:ready',
       'game-host:overlay',
       'game-host:action',
+      'game-host:release-action',
     ]) {
       ipcMain.removeAllListeners(channel)
     }
@@ -788,6 +823,7 @@ export class GameHostManager {
       TARGET_BOUNDS_TIMEOUT: '目标窗口没有及时准备好可用区域。',
       REMOVE_SOURCE_FAILED: '无法从原窗口移出游戏画面。',
       ATTACH_TARGET_FAILED: '无法把游戏画面放入目标窗口。',
+      ROLLBACK_SOURCE_UNAVAILABLE: '原游戏窗口已不可用，无法完成自动回滚。',
       HOST_OR_GUEST_DESTROYED: '游戏宿主已不可用。',
     }
     return messages[code] ?? `游戏窗口切换失败：${code}`
@@ -820,8 +856,13 @@ export class GameHostManager {
   private pruneActionTokens() {
     const now = Date.now()
     for (const [token, expiresAt] of this.actionTokens) {
-      if (expiresAt <= now) this.actionTokens.delete(token)
+      if (expiresAt != null && expiresAt <= now) this.actionTokens.delete(token)
     }
+  }
+
+  private releaseBannerActionTokens(id: string) {
+    for (const token of this.bannerActionTokens.get(id) ?? []) this.actionTokens.delete(token)
+    this.bannerActionTokens.delete(id)
   }
 
   private ensureDetachedVisible = () => {

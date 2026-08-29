@@ -13,6 +13,7 @@ interface HostBridge {
   command(type: 'reload'): Promise<unknown>
   onOverlay(listener: (event: GameOverlayEvent) => void): void
   action(token: string): void
+  releaseAction(token: string): void
   onRemount(listener: () => void): void
 }
 
@@ -99,7 +100,11 @@ void (async () => {
   bootstrap = await window.kansoGameHost.bootstrap()
   createGameView()
   new ResizeObserver(scheduleZoom).observe(wrapper)
-  const present = createGameOverlayPresenter(document, (token) => window.kansoGameHost.action(token))
+  const present = createGameOverlayPresenter(
+    document,
+    (token) => window.kansoGameHost.action(token),
+    (token) => window.kansoGameHost.releaseAction(token),
+  )
   window.kansoGameHost.onOverlay(present)
   window.kansoGameHost.onRemount(remount)
   window.kansoGameHost.ready()

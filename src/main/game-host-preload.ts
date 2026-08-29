@@ -10,8 +10,8 @@ contextBridge.exposeInMainWorld('kansoGameHost', {
     ipcRenderer.on('game-host:overlay', (_event, value: GameOverlayEvent) => listener(value))
   },
   action: (token: string) => ipcRenderer.send('game-host:action', token),
+  releaseAction: (token: string) => ipcRenderer.send('game-host:release-action', token),
   onRemount: (listener: () => void) => {
     ipcRenderer.on('game-host:remount', () => listener())
   },
 })
-

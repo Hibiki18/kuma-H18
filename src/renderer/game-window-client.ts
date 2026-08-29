@@ -22,14 +22,31 @@ let seq = 0
 let frame = 0
 let initialized = false
 let beforeDetachHook: (() => void) | undefined
-const actionCallbacks = new Map<string, () => void>()
+interface ActionCallback {
+  run: () => void
+  timer?: ReturnType<typeof setTimeout>
+}
+const actionCallbacks = new Map<string, ActionCallback>()
+const bannerActionTokens = new Map<string, string[]>()
 let workbenchOccluded: boolean | null = null
 
-const gameAction = (label: string, action: () => void) => {
+const releaseAction = (token: string) => {
+  const entry = actionCallbacks.get(token)
+  if (entry?.timer) clearTimeout(entry.timer)
+  actionCallbacks.delete(token)
+}
+
+const gameAction = (label: string, action: () => void, ttlMs?: number) => {
   const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  actionCallbacks.set(token, action)
-  setTimeout(() => actionCallbacks.delete(token), 60_000)
+  const entry: ActionCallback = { run: action }
+  if (ttlMs != null) entry.timer = setTimeout(() => releaseAction(token), ttlMs)
+  actionCallbacks.set(token, entry)
   return { token, label }
+}
+
+const releaseBannerActions = (id: string) => {
+  for (const token of bannerActionTokens.get(id) ?? []) releaseAction(token)
+  bannerActionTokens.delete(id)
 }
 
 const reportBounds = () => {
@@ -85,7 +102,11 @@ export const initGameWindowClient = (beforeDetach?: () => void) => {
   window.addEventListener('resize', scheduleEmbeddedGameBounds)
   const syncWorkbenchOcclusion = () => {
     const occluded = Boolean(
-      document.querySelector('#kanso-welcome, #overlay-host.show, #startup-overlay.visible'),
+      document.querySelector(
+        '#kanso-welcome, #overlay-host.show, #startup-overlay.visible, #drag-overlay, ' +
+          '#kanso-command-palette.open, #cg-lightbox.show, .senka-detail-host, ' +
+          '#crash-panel:not([hidden])',
+      ),
     )
     if (occluded === workbenchOccluded) return
     workbenchOccluded = occluded
@@ -94,10 +115,12 @@ export const initGameWindowClient = (beforeDetach?: () => void) => {
   const watchedOccluders = new WeakSet<Element>()
   const occluderAttributes = new MutationObserver(syncWorkbenchOcclusion)
   const discoverOccluders = () => {
-    for (const element of document.querySelectorAll('#overlay-host, #startup-overlay')) {
+    for (const element of document.querySelectorAll(
+      '#overlay-host, #startup-overlay, #kanso-command-palette, #cg-lightbox, #crash-panel',
+    )) {
       if (watchedOccluders.has(element)) continue
       watchedOccluders.add(element)
-      occluderAttributes.observe(element, { attributes: true, attributeFilter: ['class'] })
+      occluderAttributes.observe(element, { attributes: true, attributeFilter: ['class', 'hidden'] })
     }
     syncWorkbenchOcclusion()
   }
@@ -108,8 +131,11 @@ export const initGameWindowClient = (beforeDetach?: () => void) => {
     if (typeof token !== 'string') return
     const action = actionCallbacks.get(token)
     if (!action) return
-    actionCallbacks.delete(token)
-    action()
+    releaseAction(token)
+    action.run()
+  })
+  ipcRenderer.on('game-host:release-action', (_event, token: unknown) => {
+    if (typeof token === 'string') releaseAction(token)
   })
   document.addEventListener('kanso:game-host-overlay', ((event: CustomEvent<GameOverlayEvent>) => {
     publishGameOverlay(event.detail)
@@ -144,14 +170,21 @@ export const publishGameOverlay = (event: GameOverlayEvent) => {
 }
 
 export const publishGameToast = (
-  event: Omit<Extract<GameOverlayEvent, { kind: 'toast' }>, 'kind' | 'action'> & {
+  event: Omit<Extract<GameOverlayEvent, { kind: 'toast' }>, 'kind' | 'action' | 'groupAction'> & {
     actionLabel?: string
+    groupActionLabel?: string
   },
   action?: () => void,
+  groupAction?: () => void,
 ) => {
   let actionDto: { token: string; label: string } | undefined
+  let groupActionDto: { token: string; label: string } | undefined
+  const ttlMs = event.locked ? undefined : (event.durationMs ?? 8000) + 5000
   if (action && event.actionLabel) {
-    actionDto = gameAction(event.actionLabel, action)
+    actionDto = gameAction(event.actionLabel, action, ttlMs)
+  }
+  if (groupAction && event.groupActionLabel) {
+    groupActionDto = gameAction(event.groupActionLabel, groupAction, ttlMs)
   }
   publishGameOverlay({
     kind: 'toast',
@@ -161,8 +194,11 @@ export const publishGameToast = (
     detail: event.detail,
     locked: event.locked,
     groupKey: event.groupKey,
+    groupTitle: event.groupTitle,
+    count: event.count,
     durationMs: event.durationMs,
     action: actionDto,
+    groupAction: groupActionDto,
   })
 }
 
@@ -173,8 +209,10 @@ export const publishGameBanner = (
   onGo: () => void,
   onDismiss: () => void,
 ) => {
+  releaseBannerActions(event.id)
   const go = gameAction(event.actionLabel, onGo)
   const dismissAction = gameAction('关闭', onDismiss)
+  bannerActionTokens.set(event.id, [go.token, dismissAction.token])
   publishGameOverlay({
     kind: 'banner',
     id: event.id,
@@ -188,5 +226,11 @@ export const publishGameBanner = (
   })
 }
 
-export const removeGameBanner = (id: string) => publishGameOverlay({ kind: 'banner-remove', id })
-export const clearGameBanners = () => publishGameOverlay({ kind: 'banner-clear' })
+export const removeGameBanner = (id: string) => {
+  releaseBannerActions(id)
+  publishGameOverlay({ kind: 'banner-remove', id })
+}
+export const clearGameBanners = () => {
+  for (const id of bannerActionTokens.keys()) releaseBannerActions(id)
+  publishGameOverlay({ kind: 'banner-clear' })
+}

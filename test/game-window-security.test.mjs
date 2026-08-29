@@ -39,8 +39,55 @@ test('recovery reuses the existing host and disposal removes owned IPC handlers'
 })
 
 test('workbench overlays occlude only the embedded native view without touching the guest', () => {
-  assert.match(client, /#kanso-welcome, #overlay-host\.show, #startup-overlay\.visible/)
+  for (const selector of [
+    '#kanso-welcome',
+    '#overlay-host.show',
+    '#startup-overlay.visible',
+    '#drag-overlay',
+    '#kanso-command-palette.open',
+    '#cg-lightbox.show',
+    '.senka-detail-host',
+    '#crash-panel:not([hidden])',
+  ]) {
+    assert.ok(client.includes(selector), `missing native-view occluder: ${selector}`)
+  }
   assert.match(client, /ipcRenderer\.send\('game-window:occluded', occluded\)/)
   assert.match(main, /surface === 'embedded' && this\.workbenchOccluded/)
   assert.match(main, /this\.hostView\.setBounds\(this\.presentedBounds\('embedded', this\.embeddedBounds\)\)/)
+})
+
+test('failed migration cannot report a stable rollback unless the source was reattached', () => {
+  assert.match(main, /if \(removedSource\) \{[^]*ROLLBACK_SOURCE_UNAVAILABLE[^]*rollbackWindow\.contentView\.addChildView\(this\.hostView\)/)
+  assert.match(main, /catch \(rollbackError\) \{\s*this\.phase = 'RECOVERING'/)
+})
+
+test('only a guest-crash remount can clear the recovering phase on guest attach', () => {
+  assert.match(main, /const guestRecovery =[^]*GAME_GUEST_CRASHED[^]*GAME_GUEST_DESTROY_FAILED/)
+  assert.match(main, /if \(this\.phase === 'RECOVERING' && guestRecovery\)/)
+})
+
+test('workbench occlusion tracks hidden attributes as well as classes', () => {
+  assert.match(client, /attributeFilter: \['class', 'hidden'\]/)
+})
+
+test('a crashed guest is destroyed before the host is allowed to remount it', () => {
+  const crash = main.indexOf("guest.once('render-process-gone'")
+  const destroyed = main.indexOf("guest.once('destroyed'", crash)
+  const remount = main.indexOf("view.webContents.send('game-host:remount')", crash)
+  const close = main.indexOf('guest.close()', crash)
+  assert.ok(crash >= 0 && destroyed > crash && remount > destroyed && close > remount)
+  assert.doesNotMatch(main.slice(crash, remount), /this\.clearGuestId\(\)/)
+})
+
+test('persistent banner actions expire with banner lifecycle rather than a fixed timeout', () => {
+  assert.match(main, /for \(const token of tokens\) this\.actionTokens\.set\(token, null\)/)
+  assert.match(main, /releaseBannerActionTokens\(overlay\.id\)/)
+  assert.match(client, /releaseBannerActions\(event\.id\)/)
+})
+
+test('dismissed host toasts release action callbacks in both trusted processes', () => {
+  assert.match(main, /ipcMain\.on\('game-host:release-action'/)
+  assert.match(main, /webContents\.send\('game-host:release-action', token\)/)
+  assert.match(client, /ipcRenderer\.on\('game-host:release-action'/)
+  assert.match(client, /releaseAction\(token\)/)
 })

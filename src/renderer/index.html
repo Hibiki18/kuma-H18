@@ -693,7 +693,7 @@
     .splitter.v { width: 5px; cursor: col-resize; }
     .splitter.h { height: 5px; cursor: row-resize; }
     .splitter.off { display: none; }
-    /* 拖动分隔条时的全屏透明遮罩：防 webview 吞鼠标事件 */
+    /* 拖动分隔条时的全屏透明遮罩：原生游戏视图会同步隐藏，保证鼠标事件连续 */
     #drag-overlay { position: fixed; inset: 0; z-index: 1000; }
 
     /* 专注模式：三坞全收，只留游戏 */
@@ -7347,8 +7347,9 @@
     .mod-yu .ycard .h b { color: var(--text); font-weight: 600; }
     .mod-yu .ycard .h .aux { margin-left: auto; font-size: 10px; color: var(--dim); }
     .mod-yu .yline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px; font-size: 11.5px; color: var(--sub); }
-    .mod-yu .ychip { font-size: 11px; padding: 2.5px 12px; border-radius: 11px; cursor: pointer; background: var(--bg2); color: var(--sub); border: 1px solid transparent; }
+    .mod-yu .ychip { font-family: inherit; font-size: 11px; padding: 2.5px 12px; border-radius: 11px; cursor: pointer; background: var(--bg2); color: var(--sub); border: 1px solid transparent; }
     .mod-yu .ychip.on { background: var(--accent-wash); border-color: var(--accent); color: var(--accent-ink); }
+    .mod-yu .ychip:disabled { cursor: wait; opacity: .58; }
     .mod-yu .yin { min-width: 0; max-width: 100%; box-sizing: border-box; background: var(--bg0); border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 3px 8px; font-size: 11.5px; font-family: var(--mono); width: 150px; outline: none; }
     .mod-yu .yin:focus { border-color: var(--accent-dim); }
     .mod-yu .yin.w60 { width: 64px; }

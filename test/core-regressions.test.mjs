@@ -4928,7 +4928,7 @@ test('game voice requests show Chinese-first UI captions and directional battle 
   assert.match(html, /\.voice-danmaku-item\.enemy \{\s*right: 0;[^}]*animation-name: voice-danmaku-rtl/)
   assert.match(html, /@keyframes voice-danmaku-ltr/)
   assert.match(html, /@keyframes voice-danmaku-rtl/)
-  assert.match(html, /id="voice-danmaku" aria-live="polite"/)
+  assert.match(html, /id="voice-danmaku" aria-live="polite" aria-atomic="false"/)
 })
 
 test('localization lodes accept bounded bilingual entities and reject HTML-shaped ids', () => {
@@ -5119,6 +5119,10 @@ test('the Windows one-click launcher starts from its own folder and preserves st
   assert.match(packager, /executableName: 'kuma'/)
   assert.match(packager, /icon,/)
   assert.match(packager, /asar: true/)
+  assert.match(packager, /packageLock\.packages\?\.\['node_modules\/electron'\]\?\.version/)
+  assert.match(packager, /electronVersion,/)
+  assert.doesNotMatch(packager, /devDependencies\.electron\.replace/)
+  assert.match(packager, /electronZipDir: cachedElectronZip \? path\.dirname\(cachedElectronZip\) : undefined/)
   // 杀软持着刚解压的 exe，packager 紧接着 rename 整个模板目录 → EPERM。
   // 等待必须在 rename **之前**（afterExtract）；等在「失败后重试前」没用，
   // 下一轮是新解压的目录（实测外层退避到 5/10/20/30/30 秒仍每次都挂）。

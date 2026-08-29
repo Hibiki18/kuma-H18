@@ -601,9 +601,13 @@ const showToast = (def: EventDef, title: string, detail: string, ref?: EntityRef
       detail,
       locked: def.locked === true,
       groupKey: def.locked ? undefined : def.id,
+      groupTitle: def.label,
+      count: toastCountOf(title),
       actionLabel: jumpLabelOf(def, ref),
+      groupActionLabel: jumpLabelOf(def),
     },
     () => goToNotice(def, ref),
+    () => goToNotice(def),
   )
   const box = ensureToastBox()
   // 同类合并（2026-08-17 用户点名「一次处理多了会瞬间占满那一条空间」）：

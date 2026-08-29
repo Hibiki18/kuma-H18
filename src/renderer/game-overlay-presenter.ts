@@ -6,6 +6,7 @@ const toneClass = (tone: string | undefined) =>
 export const createGameOverlayPresenter = (
   root: ParentNode,
   sendAction: (token: string) => void,
+  releaseAction: (token: string) => void = () => {},
 ) => {
   const subtitle = root.querySelector<HTMLElement>('#voice-subtitle')!
   const speaker = subtitle.querySelector<HTMLElement>('.voice-subtitle-speaker')!
@@ -14,26 +15,25 @@ export const createGameOverlayPresenter = (
   const toasts = root.querySelector<HTMLElement>('#lg-toasts')!
   const banners = root.querySelector<HTMLElement>('#lg-banners')!
   const followingEffects = root.querySelector<HTMLElement>('#game-following-effects')!
-  let subtitleTimer: ReturnType<typeof setTimeout> | null = null
 
-  const clearCaptions = () => {
-    if (subtitleTimer) clearTimeout(subtitleTimer)
-    subtitleTimer = null
+  const clearBottomCaption = () => {
     subtitle.className = ''
     speaker.textContent = ''
     line.textContent = ''
+  }
+
+  const clearCaptions = () => {
+    clearBottomCaption()
     danmaku.replaceChildren()
   }
 
   const showCaption = (event: Extract<GameOverlayEvent, { kind: 'caption' }>) => {
     if (event.mode === 'bottom') {
-      if (subtitleTimer) clearTimeout(subtitleTimer)
       speaker.textContent = event.speaker
       line.textContent = event.text
       subtitle.className = toneClass(event.tone)
       void subtitle.offsetWidth
       subtitle.classList.add('show')
-      subtitleTimer = setTimeout(() => subtitle.classList.remove('show'), event.durationMs)
       return
     }
     const item = document.createElement('span')
@@ -47,6 +47,22 @@ export const createGameOverlayPresenter = (
     setTimeout(remove, event.durationMs + 500)
   }
 
+  const releaseToastAction = (element: HTMLElement) => {
+    const action = element.querySelector<HTMLButtonElement>('.toast-action')
+    const token = action?.dataset.actionToken
+    if (!token) return
+    delete action.dataset.actionToken
+    releaseAction(token)
+  }
+
+  const removeToast = (element: HTMLElement, release = true) => {
+    const timer = Number(element.dataset.timer)
+    if (timer) clearTimeout(timer)
+    delete element.dataset.timer
+    if (release) releaseToastAction(element)
+    element.remove()
+  }
+
   const armToast = (element: HTMLElement, durationMs: number) => {
     const old = Number(element.dataset.timer)
     if (old) clearTimeout(old)
@@ -58,7 +74,7 @@ export const createGameOverlayPresenter = (
       ttl.style.transition = `width ${durationMs}ms linear`
       requestAnimationFrame(() => (ttl.style.width = '0'))
     }
-    const timer = setTimeout(() => element.remove(), durationMs)
+    const timer = setTimeout(() => removeToast(element), durationMs)
     element.dataset.timer = `${timer as unknown as number}`
   }
 
@@ -67,10 +83,19 @@ export const createGameOverlayPresenter = (
       ? toasts.querySelector<HTMLElement>(`[data-group="${CSS.escape(event.groupKey)}"]`)
       : null
     if (group && !event.locked) {
-      const count = Number(group.dataset.count ?? 1) + 1
+      const count = Number(group.dataset.count ?? 1) + (event.count ?? 1)
       group.dataset.count = `${count}`
-      group.querySelector<HTMLElement>('b')!.textContent = `${event.title} ×${count}`
+      group.querySelector<HTMLElement>('b')!.textContent = `${event.groupTitle ?? event.title} ×${count}`
       group.querySelector<HTMLElement>('.detail')!.textContent = `最新：${event.detail}`
+      const action = group.querySelector<HTMLButtonElement>('.toast-action')
+      if (event.action) releaseAction(event.action.token)
+      if (action && event.groupAction) {
+        releaseToastAction(group)
+        action.dataset.actionToken = event.groupAction.token
+        action.textContent = `→ ${event.groupAction.label}`
+      } else if (event.groupAction) {
+        releaseAction(event.groupAction.token)
+      }
       armToast(group, event.durationMs ?? 8000)
       return
     }
@@ -78,7 +103,7 @@ export const createGameOverlayPresenter = (
     const element = document.createElement('section')
     element.className = `lg-toast ${event.severity}`
     element.dataset.group = event.groupKey ?? ''
-    element.dataset.count = '1'
+    element.dataset.count = `${event.count ?? 1}`
     const close = document.createElement('button')
     close.className = 'toast-close'
     close.type = 'button'
@@ -97,15 +122,25 @@ export const createGameOverlayPresenter = (
       const action = document.createElement('button')
       action.className = 'toast-action'
       action.type = 'button'
+      action.dataset.actionToken = event.action.token
       action.textContent = `→ ${event.action.label}`
       action.addEventListener('click', (click) => {
         click.stopPropagation()
-        sendAction(event.action!.token)
-        element.remove()
+        const token = action.dataset.actionToken
+        if (token) {
+          delete action.dataset.actionToken
+          sendAction(token)
+        }
+        removeToast(element, false)
       })
       body.appendChild(action)
     }
-    close.addEventListener('click', () => element.remove())
+    if (event.groupAction) releaseAction(event.groupAction.token)
+    close.addEventListener('click', (click) => {
+      click.stopPropagation()
+      removeToast(element)
+    })
+    element.addEventListener('click', () => removeToast(element))
     element.append(body, close)
     if (!event.locked) {
       const ttl = document.createElement('span')
@@ -117,7 +152,7 @@ export const createGameOverlayPresenter = (
     while (toasts.children.length > 4) {
       const removable = [...toasts.children].find((child) => !child.hasAttribute('data-locked'))
       if (!removable) break
-      removable.remove()
+      removeToast(removable as HTMLElement)
     }
     if (!event.locked) armToast(element, event.durationMs ?? 8000)
   }
@@ -158,7 +193,10 @@ export const createGameOverlayPresenter = (
     const go = document.createElement('button')
     go.type = 'button'
     go.textContent = `查看${event.go.label}`
-    go.addEventListener('click', () => sendAction(event.go.token))
+    go.addEventListener('click', () => {
+      go.disabled = true
+      sendAction(event.go.token)
+    })
     const close = document.createElement('button')
     close.type = 'button'
     close.title = '关闭'
@@ -171,7 +209,10 @@ export const createGameOverlayPresenter = (
   }
 
   return (event: GameOverlayEvent) => {
-    if (event.kind === 'caption-clear') clearCaptions()
+    if (event.kind === 'caption-clear') {
+      if (event.scope === 'bottom') clearBottomCaption()
+      else clearCaptions()
+    }
     else if (event.kind === 'caption') showCaption(event)
     else if (event.kind === 'toast') showToast(event)
     else if (event.kind === 'launch-glow') showLaunchGlow(event)
