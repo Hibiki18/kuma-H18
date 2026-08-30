@@ -432,8 +432,12 @@ export interface BattleStageView {
   airBaseId?: number
   /**
    * api_support_info.api_support_hourai 的 api_deck_id / api_ship_id：
-   * 打支援炮击的是**第几舰队**、由**哪几条舰**组成（mstId）。
+   * 打支援炮击的是**第几舰队**、由**哪几条舰**组成。
    * 支援航空（api_support_airatack）没有这一对，缺省即没有。
+   *
+   * **报文里的 api_ship_id 是在籍 ID，这里存的是回查之后的 mstId**——解析层按
+   * api_deck_id 那支队的编成把在籍 ID 换算过（判据见 mg/battle.ts 的 applySupport）。
+   * 那支队当时不在账上就留空，只报队号，不上屏一个查错的名字。
    */
   support?: { deckId: number; shipMstIds: number[] }
 }

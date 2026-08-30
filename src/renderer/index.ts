@@ -14,6 +14,8 @@ import type { BgmArchiveEntry } from '../shared/bgm-archive-plan'
 import { setVoiceHost } from './kcs-voice'
 import { installEquipIconFallback } from './equip-icon'
 import { installEntityArtFallback } from './entity-art'
+import { getGameScaleMode, getGameScaleStep, setGameScaleApplier } from './game-scale'
+import { GAME_WIDTH, computeGameLayout } from '../shared/game-scale'
 import { getUiZoom, initKernel, initUiZoom, mg, onUiZoom, openBrowseWindow, setUiZoom } from './kernel'
 import { initBgmPreview } from './bgm-preview'
 import { initPreviewBar } from './preview-bar'
@@ -81,7 +83,6 @@ installEntityArtFallback()
 const PRELOAD_URL = pathToFileURL(
   path.join(APP_ROOT, 'assets', 'preload', 'webview-preload.js'),
 ).href
-const GAME_WIDTH = 1200
 
 // UA 清洗：去掉 Electron 与应用名那两段（poi 同款手法）。判据在 shared/user-agent，
 // 浏览窗引的是同一个——这里原先自己写了一份找 `kanso/` 的正则，改名之后一直空转。
@@ -97,6 +98,7 @@ const $ = <T extends HTMLElement>(selector: string): T => {
 type WebviewTag = Electron.WebviewTag
 
 const gameWrapper = $('#game-wrapper')
+const gameArea = $('#game-area')
 let webview: WebviewTag | null = null
 let webviewReady = false
 
@@ -104,7 +106,10 @@ const applyZoom = () => {
   if (!webview || !webviewReady) return
   const { width } = gameWrapper.getBoundingClientRect()
   if (width <= 0) return
-  // 乘 UI 缩放：rect 是渲染层 CSS px，webview 的实际物理尺寸还要再乘一次页面缩放
+  // 乘 UI 缩放：rect 是渲染层 CSS px，webview 的实际物理尺寸还要再乘一次页面缩放。
+  // 锁定档也走这一路、不从档位另给一个数：量什么就配什么倍率，画面还没摆到位或分隔条
+  // 正拖着时也不会出现「盒子一个大小、内容另一个」。反推丢不丢精度实测过（2026-08-30，
+  // 真实例 + CDP）：锁定 100% 量出 1043.478271484375px，factor 与 getZoomFactor() 都是整 1。
   const factor = Math.round(((width * getUiZoom()) / GAME_WIDTH) * 100000) / 100000
   try {
     webview.setZoomFactor(factor)
@@ -119,6 +124,37 @@ let zoomTimer: ReturnType<typeof setTimeout> | null = null
 const applyZoomDebounced = () => {
   if (zoomTimer) clearTimeout(zoomTimer)
   zoomTimer = setTimeout(applyZoom, 120)
+}
+
+// 按当前设置算这一屏该多大。界面缩放要带上：锁定档说的是「游戏的 1200 逻辑像素占
+// 1200 个屏上 CSS 像素」，而 wrapper 的宽是渲染层坐标，两者差的正是一层页面缩放。
+// 可用区取 rect 的小数值——clientWidth 会取整，「刚好装得下」会被判成装不下、白掉一档。
+const gameLayoutNow = () => {
+  const area = gameArea.getBoundingClientRect()
+  return computeGameLayout({
+    areaWidth: area.width,
+    areaHeight: area.height,
+    mode: getGameScaleMode(),
+    lockStep: getGameScaleStep(),
+    uiZoom: getUiZoom(),
+  })
+}
+
+// 拖分隔条期间不许写 wrapper 的宽：那正是下面 dragHooks 冻起来的东西，
+// 每帧改一次宽就是每帧让游戏进程重排一次，冻结缩放白做。
+let dragging = false
+
+/**
+ * 摆一次游戏区。锁定档写死 wrapper 的宽（高由 aspect-ratio 跟上，居中与黑边由
+ * #game-area 的 flex 与黑底自然成立）；自适应把宽度交还给样式表那条 min(100cqw, …)，
+ * 一个字都不改——老玩家零感知。
+ */
+const applyGameLayout = (immediate = false) => {
+  if (dragging) return
+  const layout = gameLayoutNow()
+  gameWrapper.style.width = layout.locked ? `${layout.width}px` : ''
+  if (immediate) applyZoom()
+  else applyZoomDebounced()
 }
 
 const overlay = $('#game-overlay')
@@ -186,6 +222,9 @@ $('#btn-retry').addEventListener('click', () => {
 
 webview = createGameView()
 new ResizeObserver(() => applyZoomDebounced()).observe(gameWrapper)
+// 可用区变了要重算档位（锁定档可能从装得下变成装不下）。观察的是 #game-area 而不是
+// wrapper：wrapper 的宽正是这里写进去的，盯着它改它就是自己追自己。
+new ResizeObserver(() => applyGameLayout()).observe(gameArea)
 
 // ---- 头部按钮 ----
 $('#btn-reload').addEventListener('click', () => {
@@ -305,25 +344,25 @@ if (validGameHost(initialServer?.ip)) {
 // （纯 GPU 合成，每帧顺滑），坞位布局实时跟手；松手恢复流式布局 +
 // 一次真正的 setZoomFactor 恢复清晰度与点击坐标。
 // 铆负责算尺寸，这里只管游戏区的冻结/缩放/复原。
-const gameArea = $('#game-area')
+// 拖动期间的 scale 用的是与松手后同一份布局判据（computeGameLayout），所以拖到哪儿
+// 看到的就是松手后的样子：自适应连续缩，锁定档黑边跟着变、装不下时按档降下来。
 let frozen: DOMRect | null = null
 setLayoutDragHooks({
   start: () => {
+    dragging = true
     frozen = gameWrapper.getBoundingClientRect()
     gameWrapper.style.width = `${frozen.width}px`
     gameWrapper.style.transformOrigin = 'center center'
   },
   move: () => {
     if (!frozen || frozen.width <= 0) return
-    const area = gameArea.getBoundingClientRect()
-    const scale = Math.min(area.width / frozen.width, area.height / frozen.height)
-    gameWrapper.style.transform = `scale(${scale})`
+    gameWrapper.style.transform = `scale(${gameLayoutNow().width / frozen.width})`
   },
   end: () => {
     frozen = null
+    dragging = false
     gameWrapper.style.transform = ''
-    gameWrapper.style.width = ''
-    applyZoom() // 立即执行一次真缩放，画面恢复清晰
+    applyGameLayout(true) // 立即执行一次真缩放，画面恢复清晰
   },
 })
 
@@ -351,7 +390,10 @@ document.addEventListener('keydown', (e) => {
     setUiZoom(1.15)
   }
 })
-onUiZoom(() => applyZoomDebounced())
+// 界面缩放改了要重摆：锁定档的 wrapper 宽是「倍率 ÷ 界面缩放」，分母动了宽就得跟着动
+onUiZoom(() => applyGameLayout())
+// 钥里改档位/模式时由这里回摆。登记的这一下也顺手把开机的初始档摆上
+setGameScaleApplier(() => applyGameLayout())
 
 // ---- 启动点亮（测试性功能，钥里默认关）----
 // **在这里就罩暗**，而不是等模块装完：游戏 webview 在本文件顶部就已经开始加载，

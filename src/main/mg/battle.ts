@@ -17,7 +17,7 @@ import type {
   RankPrediction,
 } from '../../shared/mg-types'
 import { requiredSunkForA } from '../../shared/battle-rank'
-import { SPECIAL_ATTACK_SEGMENT_ORDER } from '../../shared/fleet-special-attack'
+import { specialAttackSegmentOrder } from '../../shared/fleet-special-attack'
 
 export interface FleetEquipmentContext {
   instanceId: number
@@ -388,17 +388,6 @@ const activeDeckIndex = (
 
 const targetSideOf = (attackerSide: BattleSide): BattleSide => (attackerSide === 1 ? 0 : 1)
 
-const fleetSpan = (sim: Sim, side: BattleSide): number => {
-  if (side === 2) return 6
-  const ships = shipList(sim, side)
-  if (ships.some((ship) => ship.fleet === 'escort')) return 12
-  return Math.max(6, ...ships.map((ship) => ship.index + 1))
-}
-
-// 支援炮击的旧数组用长度 7/13 表示前导占位 0；按舰队槽位数识别，不能只看首值正负。
-const combatArrayOffset = (sim: Sim, side: BattleSide, values: any): number =>
-  Array.isArray(values) && values.length === fleetSpan(sim, side) + 1 ? 1 : 0
-
 // 当前雷击数组固定预留第 7 槽：普通六舰队也是 7 项，但第 0 项仍是第一舰，
 // 多出来的是末尾槽，不能按「长度 = 舰数 + 1」误判为前导占位。
 // 只有同一报文的 HP 舰表本身带前导占位时，雷击数组才沿用该偏移。
@@ -532,7 +521,8 @@ const applyHit = (
 
 // 特殊攻击中每一击的实际攻击舰偏移。没有表的 CI 仍按单舰多击处理。
 // 表本身住在 shared/fleet-special-attack.ts：显示层要照同一份把摊开的段收回一组。
-const MULTI_ATTACK_ORDER = SPECIAL_ATTACK_SEGMENT_ORDER
+// 潜水舰队攻击的段数不固定，所以取表要带上本次的实际段数（判据见那边的头注）。
+const MULTI_ATTACK_ORDER = specialAttackSegmentOrder
 
 interface AttackStageOptions {
   phase: BattleAttack['phase']
@@ -608,7 +598,7 @@ const applyHougeki = (sim: Sim, h: any, options: AttackStageOptions) => {
     const targetSide: BattleSide =
       options.sideOverride === 2 ? (side === 2 ? 1 : 2) : targetSideOf(side)
     if (legacyShift && rawAttacker >= legacyShift) rawAttacker -= legacyShift
-    const multiOrder = ci != null ? MULTI_ATTACK_ORDER[ci] : undefined
+    const multiOrder = ci != null ? MULTI_ATTACK_ORDER(ci, dmgs.length) : undefined
 
     if (multiOrder) {
       dmgs.forEach((raw: any, j: number) => {
@@ -757,36 +747,38 @@ const applyRaigekiAtStage = (
   applySide(r.api_erai, r.api_eydam, r.api_ecl, 1)
 }
 
-const applyRaigeki = (
+// `*_list_items` 形态：一条舰可以打多个目标，所以每一格是「这条舰这一轮的目标数组」。
+// 两处形状要收住，判据都是 KC3Kai `BattlePrediction/phases/Raigeki.js`：
+// - **那一格可能不是数组而是单个数**（`Array.isArray(api_fydam_list_items) ? ... : {单击}`）。
+//   本账本 509 份开幕雷击报文里一次都没出现过，但只出手一次的舰按单值下发是它明写的分支，
+//   撞上就是整条舰的这一轮被丢掉。
+// - **闭幕雷击也走这套判定**：KC3 的开幕/闭幕共用 `parseRaigekiInternal`，
+//   按 `api_fydam_list_items` 在不在分流。本账本 496 份 `api_raigeki` 全是单目标老格式，
+//   所以这一路目前没有实证，接上是为了它真来的那天不会整段静默消失。
+const applyMultiRaigekiAtStage = (
   sim: Sim,
   r: any,
   phase: BattleAttack['phase'],
   label: string,
   source: string,
+  stage: number,
 ) => {
-  if (!r) return
-  const stage = addStage(sim, phase, label, source, null, true)
-  applyRaigekiAtStage(sim, r, phase, label, source, stage)
-}
-
-const applyOpeningTorp = (sim: Sim, o: any, label = '开幕雷击', source = 'api_opening_atack') => {
-  if (!o) return
-  const stage = addStage(sim, 'openingTorp', label, source, null, true)
-  if (!Array.isArray(o.api_frai_list_items) && !Array.isArray(o.api_erai_list_items)) {
-    applyRaigekiAtStage(sim, o, 'openingTorp', label, source, stage)
-    return
-  }
   const applySide = (raiItems: any, ydamItems: any, clItems: any, side: 0 | 1) => {
     if (!Array.isArray(raiItems)) return
     const targetSide: BattleSide = side === 0 ? 1 : 0
     // *_list_items 是当前 0 基格式，数组位置就是攻击舰位置；普通六舰队也会给 7 项。
     const attackerOffset = 0
-    raiItems.forEach((targets: any, rawAttacker: number) => {
+    raiItems.forEach((rawTargets: any, rawAttacker: number) => {
       if (rawAttacker < attackerOffset) return
-      if (!Array.isArray(targets)) return
+      if (rawTargets == null) return
+      const targets: any[] = Array.isArray(rawTargets) ? rawTargets : [rawTargets]
+      const rawDamages = ydamItems?.[rawAttacker]
+      const damages: any[] = Array.isArray(rawDamages) ? rawDamages : [rawDamages]
+      const rawCls = clItems?.[rawAttacker]
+      const cls: any[] = Array.isArray(rawCls) ? rawCls : [rawCls]
       const attacker = normalizeIndex(sim, side, rawAttacker - attackerOffset)
       const attack: BattleAttack = {
-        phase: 'openingTorp',
+        phase,
         side,
         attacker,
         ciType: null,
@@ -802,9 +794,8 @@ const applyOpeningTorp = (sim: Sim, o: any, label = '开幕雷击', source = 'ap
         const rawTarget = num(rawTargetValue, -1)
         if (rawTarget < 0) return
         const target = normalizeIndex(sim, targetSide, rawTarget)
-        const raw = num(ydamItems?.[rawAttacker]?.[j])
-        const hit = applyHit(sim, targetSide, target, raw, side, attacker)
-        const rawCl = clItems?.[rawAttacker]?.[j]
+        const hit = applyHit(sim, targetSide, target, num(damages[j]), side, attacker)
+        const rawCl = cls[j]
         const hitState = hitStateFromCl(rawCl, hit.damage)
         attack.hits.push({
           target,
@@ -820,8 +811,41 @@ const applyOpeningTorp = (sim: Sim, o: any, label = '开幕雷击', source = 'ap
       if (attack.hits.length) sim.attacks.push(attack)
     })
   }
-  applySide(o.api_frai_list_items, o.api_fydam_list_items, o.api_fcl_list_items, 0)
-  applySide(o.api_erai_list_items, o.api_eydam_list_items, o.api_ecl_list_items, 1)
+  applySide(r.api_frai_list_items, r.api_fydam_list_items, r.api_fcl_list_items, 0)
+  applySide(r.api_erai_list_items, r.api_eydam_list_items, r.api_ecl_list_items, 1)
+}
+
+const applyTorpedoAtStage = (
+  sim: Sim,
+  r: any,
+  phase: BattleAttack['phase'],
+  label: string,
+  source: string,
+  stage: number,
+) => {
+  if (Array.isArray(r.api_frai_list_items) || Array.isArray(r.api_erai_list_items)) {
+    applyMultiRaigekiAtStage(sim, r, phase, label, source, stage)
+    return
+  }
+  applyRaigekiAtStage(sim, r, phase, label, source, stage)
+}
+
+const applyRaigeki = (
+  sim: Sim,
+  r: any,
+  phase: BattleAttack['phase'],
+  label: string,
+  source: string,
+) => {
+  if (!r) return
+  const stage = addStage(sim, phase, label, source, null, true)
+  applyTorpedoAtStage(sim, r, phase, label, source, stage)
+}
+
+const applyOpeningTorp = (sim: Sim, o: any, label = '开幕雷击', source = 'api_opening_atack') => {
+  if (!o) return
+  const stage = addStage(sim, 'openingTorp', label, source, null, true)
+  applyTorpedoAtStage(sim, o, 'openingTorp', label, source, stage)
 }
 
 // 航空 stage3：只有承伤数组，无逐舰攻击者。
@@ -1037,17 +1061,43 @@ const applyKouku = (
 
 const asWaves = (v: any): any[] => (Array.isArray(v) ? v : v ? [v] : [])
 
-const applySupport = (sim: Sim, info: any, label: string, source: string) => {
+const applySupport = (
+  sim: Sim,
+  info: any,
+  label: string,
+  source: string,
+  ctx: FleetContext,
+) => {
   if (!info) return
   const air = info.api_support_airatack
   const stage = addStage(sim, 'support', label, source, toAirView(sim, air))
   const hourai = info.api_support_hourai
   // 打支援的是第几舰队、由哪几条舰组成。伤害数字旁边点得出名字，这一段才不是匿名的。
-  // 支援舰队的编成**不在我方战斗舰表里**（它不参战、没有 HP 行），所以只能存 mstId，
-  // 不能像别处那样按舰位去查——真去查会取到本队同位置的另一条舰。
+  // 支援舰队的编成**不在我方战斗舰表里**（它不参战、没有 HP 行），所以不能按舰位去查
+  // ——真去查会取到本队同位置的另一条舰。
+  //
+  // **api_ship_id 是在籍 ID，不是 mstId。** 拿它当 mstId 去主数据里查，查不到的落成
+  // 「#3224」，正好撞上 1500+ 的会取到深海舰名——玩家实报的「第4舰队 · #1493、#6151、
+  // 深海地中海棲姫 等6舰」就是这么来的。两票：
+  // - 本机账本唯一那一场（2026-08-07 16:13，deck_id=3）给的
+  //   [711,3224,4460,2460,983,202] **六个全是这账号自己的在籍 ID**
+  //   （ship_life_state 逐条对上，分别是 mst 464/538/916/546/541/573），
+  //   而 3224/4460 这种值早就越过主数据的舰 ID 范围了；
+  // - 玩家截图里那三个名字的形态（两个查不到、一个是深海姬）只有「按在籍 ID 当 mstId 查」
+  //   才解释得通。
+  // 支援舰队就是 api_deck_id 那支队，按在籍 ID 回查它自己的编成才认得出人；
+  // 查不着就一条不写，宁可只显示「第 N 舰队」，也不上屏一个错名字。
   const supportDeckId = num(hourai?.api_deck_id)
+  const rosterToMst = new Map<number, number>()
+  if (supportDeckId > 0) {
+    for (const ship of ctx.fleetShips(supportDeckId)) {
+      if (ship) rosterToMst.set(ship.rosterId, ship.mstId)
+    }
+  }
   const supportShips = Array.isArray(hourai?.api_ship_id)
-    ? hourai.api_ship_id.map((v: unknown) => num(v, -1)).filter((v: number) => v > 0)
+    ? hourai.api_ship_id
+        .map((v: unknown) => rosterToMst.get(num(v, -1)) ?? -1)
+        .filter((v: number) => v > 0)
     : []
   if (supportDeckId > 0 || supportShips.length) {
     const view = sim.stages.find((item) => item.order === stage)
@@ -1067,10 +1117,31 @@ const applySupport = (sim: Sim, info: any, label: string, source: string) => {
       simultaneous: false,
       hits: [],
     }
-    const offset = combatArrayOffset(sim, 1, hourai.api_damage)
+    // 支援炮击是**多目标**的：这条数组按敌方逐位给伤害（敌联合则主力 0-5、护卫 6-11
+    // 排在同一条数组里，没有 _combined 变体），打中几条就有几格非零，逐格都要结算。
+    //
+    // **下标就是敌舰位，不做任何前导占位换算。** 这条数组是**定长**的：长度由舰队槽位数
+    // 决定，与实际敌舰数无关——通常舰队 7 槽（遊撃部隊之后单队就是 7）、敌联合 12 槽，
+    // 敌不满员时尾部补零。所以「长度 = 敌舰数 + 1 就当 1 基」那条老判据会把
+    // 「敌 5 舰 + 7 槽」误判成 1 基，整条错位一格。
+    //
+    // 判死样本（本机账本 event 28729，2026-08-30 11:13:28，62-1，我方 7 舰游击、敌 5 舰
+    // HP [48,35,35,35,35]，全场只有支援 + 砲击战一巡，无夜战）：
+    //   支援 api_damage = [0, 91.1, 6, 0, 131, 0, 0]，api_hourai_flag = [1,0,0,0]
+    //   砲击战我方命中：敌#3 132、敌#2 22+27、敌#0 87
+    //   · 按 1 基读 → 91→#0、6→#1、131→#3：只沉 3 艘，#1 余 29、#4 满血；
+    //   · 按 0 基读 → 91→#1、6→#2、131→#4：五艘全部归零。
+    //   11:14:02 的 battleresult 给 api_dests = 5、api_win_rank = S。**只有 0 基对得上账。**
+    //
+    // 三条旁证同向：本机 2026-08-07 敌联合那场 12 项、非零在下标 2 与 10；KC3Kai 抓包样例
+    //（tests/library/modules/BattlePrediction/integration/Support.js）12 项 → 敌舰位 0/4/10；
+    // KC3 的 Support.js 也是 `parseJson = ({api_damage}, index) => ... position: index`，没有偏移。
+    //
+    // apilist（EO 冻结版与 sinsinpub 现行维护版同文）写的是 `[7]` / `[13]`——**长度对，语义不对**：
+    // 那 7 槽是舰位槽，不是「1 基占位 + 6 敌位」。这一条别再照文档改回去，文档没跟上。
     hourai.api_damage.forEach((raw: any, i: number) => {
-      if (i < offset || num(raw) <= 0) return
-      const target = i - offset
+      if (num(raw) <= 0) return
+      const target = i
       const hit = applyHit(sim, 1, target, num(raw), 0, -1)
       attack.hits.push({
         target,
@@ -1272,8 +1343,8 @@ const parseActiveDeck = (body: any): [number, number] | null =>
     ? [num(body.api_active_deck[0], 1), num(body.api_active_deck[1], 1)]
     : null
 
-const parseNightStages = (sim: Sim, body: any, dawn: boolean) => {
-  applySupport(sim, body.api_n_support_info, '夜战支援', 'api_n_support_info')
+const parseNightStages = (sim: Sim, body: any, dawn: boolean, ctx: FleetContext) => {
+  applySupport(sim, body.api_n_support_info, '夜战支援', 'api_n_support_info', ctx)
   if (dawn) {
     applyHougeki(sim, body.api_n_hougeki1, {
       phase: 'night',
@@ -1350,7 +1421,7 @@ const parseDayStages = (sim: Sim, body: any, apiPath: string, ctx: FleetContext)
     'api_kouku',
   )
   applyKouku(sim, body.api_kouku2, 'air2', '第二航空战', 'api_kouku2')
-  applySupport(sim, body.api_support_info, '支援舰队', 'api_support_info')
+  applySupport(sim, body.api_support_info, '支援舰队', 'api_support_info', ctx)
   applyHougeki(sim, body.api_opening_taisen, {
     phase: 'openingAsw',
     label: '开幕对潜',
@@ -1503,9 +1574,9 @@ export const parseBattle = (
 
   const night = isNightPath(apiPath)
   const dawn = isNightToDay(apiPath)
-  if (night) parseNightStages(sim, body, false)
+  if (night) parseNightStages(sim, body, false, ctx)
   else {
-    if (dawn) parseNightStages(sim, body, true)
+    if (dawn) parseNightStages(sim, body, true, ctx)
     parseDayStages(sim, body, apiPath, ctx)
   }
 
@@ -1723,7 +1794,7 @@ export const mergeNight = (
     activeDeck,
     repairItems,
   }
-  parseNightStages(sim, body, false)
+  parseNightStages(sim, body, false, ctx)
   const touch = Array.isArray(body.api_touch_plane)
     ? [num(Number(body.api_touch_plane[0]), -1), num(Number(body.api_touch_plane[1]), -1)] as [number, number]
     : prev.nightContact

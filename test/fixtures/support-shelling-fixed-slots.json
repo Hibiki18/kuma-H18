@@ -1,0 +1,383 @@
+{
+ "note": "本机账本 event 28729/28730（2026-08-30 11:13:28，62-1 cell 29）。我方 7 舰游击、敌 5 舰，全场只有支援炮击 + 砲击战一巡。支援 api_damage 定长 7 项而敌只有 5 舰，是「长度 = 敌舰数 + 1 就当 1 基」那条老判据的判死样本。",
+ "path": "/kcsapi/api_req_sortie/battle",
+ "battle": {
+  "api_deck_id": 3,
+  "api_formation": [
+   6,
+   6,
+   1
+  ],
+  "api_f_nowhps": [
+   39,
+   34,
+   38,
+   29,
+   31,
+   39,
+   40
+  ],
+  "api_f_maxhps": [
+   39,
+   40,
+   38,
+   29,
+   31,
+   39,
+   40
+  ],
+  "api_fParam": [
+   [
+    69,
+    91,
+    87,
+    57
+   ],
+   [
+    65,
+    89,
+    72,
+    63
+   ],
+   [
+    62,
+    82,
+    76,
+    56
+   ],
+   [
+    52,
+    70,
+    62,
+    47
+   ],
+   [
+    52,
+    90,
+    70,
+    50
+   ],
+   [
+    70,
+    82,
+    109,
+    57
+   ],
+   [
+    66,
+    90,
+    74,
+    60
+   ]
+  ],
+  "api_ship_ke": [
+   1518,
+   1575,
+   1575,
+   1575,
+   1575
+  ],
+  "api_ship_lv": [
+   1,
+   1,
+   1,
+   1,
+   1
+  ],
+  "api_e_nowhps": [
+   48,
+   35,
+   35,
+   35,
+   35
+  ],
+  "api_e_maxhps": [
+   48,
+   35,
+   35,
+   35,
+   35
+  ],
+  "api_eSlot": [
+   [
+    1504,
+    1525,
+    -1,
+    -1,
+    -1
+   ],
+   [
+    1502,
+    1545,
+    1542,
+    -1,
+    -1
+   ],
+   [
+    1502,
+    1545,
+    1542,
+    -1,
+    -1
+   ],
+   [
+    1502,
+    1545,
+    1542,
+    -1,
+    -1
+   ],
+   [
+    1502,
+    1545,
+    1542,
+    -1,
+    -1
+   ]
+  ],
+  "api_eParam": [
+   [
+    30,
+    40,
+    20,
+    30
+   ],
+   [
+    38,
+    60,
+    30,
+    22
+   ],
+   [
+    38,
+    60,
+    30,
+    22
+   ],
+   [
+    38,
+    60,
+    30,
+    22
+   ],
+   [
+    38,
+    60,
+    30,
+    22
+   ]
+  ],
+  "api_smoke_type": 0,
+  "api_balloon_cell": 0,
+  "api_atoll_cell": 0,
+  "api_midnight_flag": 0,
+  "api_search": [
+   5,
+   1
+  ],
+  "api_stage_flag": [
+   1,
+   0,
+   0
+  ],
+  "api_kouku": {
+   "api_plane_from": [
+    null,
+    null
+   ],
+   "api_stage1": {
+    "api_f_count": 0,
+    "api_f_lostcount": 0,
+    "api_e_count": 0,
+    "api_e_lostcount": 0,
+    "api_disp_seiku": 1,
+    "api_touch_plane": [
+     -1,
+     -1
+    ]
+   },
+   "api_stage2": null,
+   "api_stage3": null
+  },
+  "api_support_flag": 2,
+  "api_support_info": {
+   "api_support_airatack": null,
+   "api_support_hourai": {
+    "api_deck_id": 2,
+    "api_ship_id": [
+     62,
+     2460,
+     983,
+     202,
+     711,
+     19
+    ],
+    "api_undressing_flag": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "api_cl_list": [
+     0,
+     1,
+     1,
+     0,
+     1,
+     0,
+     0
+    ],
+    "api_damage": [
+     0,
+     91.1,
+     6,
+     0,
+     131,
+     0,
+     0
+    ]
+   }
+  },
+  "api_opening_taisen_flag": 0,
+  "api_opening_taisen": null,
+  "api_opening_flag": 0,
+  "api_opening_atack": null,
+  "api_hourai_flag": [
+   1,
+   0,
+   0,
+   0
+  ],
+  "api_hougeki1": {
+   "api_at_eflag": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "api_at_list": [
+    2,
+    0,
+    5,
+    2,
+    1,
+    0,
+    6
+   ],
+   "api_at_type": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "api_df_list": [
+    [
+     3
+    ],
+    [
+     3
+    ],
+    [
+     3
+    ],
+    [
+     3
+    ],
+    [
+     2
+    ],
+    [
+     2
+    ],
+    [
+     0
+    ]
+   ],
+   "api_si_list": [
+    [
+     313
+    ],
+    [
+     1504
+    ],
+    [
+     122
+    ],
+    [
+     1502
+    ],
+    [
+     266
+    ],
+    [
+     529
+    ],
+    [
+     398
+    ]
+   ],
+   "api_cl_list": [
+    [
+     0
+    ],
+    [
+     0
+    ],
+    [
+     2
+    ],
+    [
+     0
+    ],
+    [
+     1
+    ],
+    [
+     1
+    ],
+    [
+     1
+    ]
+   ],
+   "api_damage": [
+    [
+     0
+    ],
+    [
+     0
+    ],
+    [
+     132
+    ],
+    [
+     0
+    ],
+    [
+     22
+    ],
+    [
+     27
+    ],
+    [
+     87
+    ]
+   ]
+  },
+  "api_hougeki2": null,
+  "api_hougeki3": null,
+  "api_raigeki": null
+ },
+ "result": {
+  "api_win_rank": "S",
+  "api_dests": 5,
+  "api_destsf": 1
+ }
+}

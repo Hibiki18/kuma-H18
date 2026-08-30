@@ -11,6 +11,12 @@ import { setVoiceCaptionsEnabled } from '../voice-subtitle'
 import { setOverlayEntranceEnabled } from '../launch-glow'
 import { reloadVoiceAbsent } from '../voice-probe'
 import {
+  getGameScaleMode,
+  getGameScaleStep,
+  setGameScaleMode,
+  setGameScaleStep,
+} from '../game-scale'
+import {
   esc,
   fmtDateTime,
   getUiZoom,
@@ -48,6 +54,11 @@ import {
   GAME_URL_CONFIG_KEY,
   isValidGameUrl,
 } from '../../shared/game-url'
+import {
+  GAME_SCALE_MODE_LABEL,
+  GAME_SCALE_MODES,
+  GAME_SCALE_STEPS,
+} from '../../shared/game-scale'
 import { LAUNCH_GLOW_CONFIG_KEY, LAUNCH_GLOW_DEFAULT } from '../../shared/launch-glow'
 import { mapIntelCatalog } from '../../shared/map-intel'
 import { groupVoiceAbsentByMonth } from '../../shared/voice-probe-plan'
@@ -927,6 +938,29 @@ const zoomCardHtml = (): string => {
     <div class="ynote">快捷键 <span class="mono">Ctrl +</span> / <span class="mono">Ctrl -</span> / <span class="mono">Ctrl 0</span>（回到 115%）。</div>`
 }
 
+/**
+ * 游戏画面的倍率。自适应是从前那一档，默认不变。
+ *
+ * 档位那一行只在选了固定倍率时摆：自适应下它一个字都用不上，摆着只会让人以为
+ * 两栏要各选一个。摆位置的判据在 shared/game-scale，这里只是那张表的界面。
+ */
+const gameScaleCardHtml = (): string => {
+  const mode = getGameScaleMode()
+  const step = getGameScaleStep()
+  const modeChips = GAME_SCALE_MODES.map(
+    (id) =>
+      `<span class="ychip${mode === id ? ' on' : ''}" data-game-scale-mode="${id}">${GAME_SCALE_MODE_LABEL[id]}</span>`,
+  ).join('')
+  const stepChips = GAME_SCALE_STEPS.map(
+    (value) =>
+      `<span class="ychip${Math.abs(step - value) < 0.001 ? ' on' : ''}" data-game-scale-step="${value}">${Math.round(value * 100)}%</span>`,
+  ).join('')
+  return `<div class="h"><b>游戏画面</b><span class="aux">即时生效</span></div>
+    <div class="yline">${modeChips}</div>
+    ${mode === 'lock' ? `<div class="yline">${stepChips}</div>` : ''}
+    <div class="ynote">固定倍率四周可能出现黑边</div>`
+}
+
 // 抬头那句不能写死「即时生效」：这一卡里最后那条（启动点亮动画）说的是「下次启动生效」,
 // 两句摆在同一张卡上就是自相矛盾。改成留个口子，例外由那一条自己说清楚。
 const uiHintsCardHtml = (): string => `<div class="h"><b>界面提示</b><span class="aux">即时生效 · 注明的除外</span></div>
@@ -1203,6 +1237,7 @@ const aboutCardHtml = (): string => `<div class="h"><b>关于</b></div>
  */
 const CARD_HTML: Record<SettingsCardId, () => string> = {
   zoom: zoomCardHtml,
+  'game-scale': gameScaleCardHtml,
   'ui-hints': uiHintsCardHtml,
   tray: trayCardHtml,
   'game-audio': gameAudioCardHtml,
@@ -1433,6 +1468,19 @@ registerModule({
       const zoomChip = t.closest<HTMLElement>('[data-zoom]')
       if (zoomChip) {
         setUiZoom(parseFloat(zoomChip.dataset.zoom!))
+        return
+      }
+      const gameScaleModeChip = t.closest<HTMLElement>('[data-game-scale-mode]')
+      if (gameScaleModeChip) {
+        // 重绘是为了那一行档位：换成固定倍率它才出来，换回自适应它才收走
+        setGameScaleMode(gameScaleModeChip.dataset.gameScaleMode)
+        render()
+        return
+      }
+      const gameScaleStepChip = t.closest<HTMLElement>('[data-game-scale-step]')
+      if (gameScaleStepChip) {
+        setGameScaleStep(parseFloat(gameScaleStepChip.dataset.gameScaleStep!))
+        render()
         return
       }
       if (act === 'audio-selftest-refresh') {
