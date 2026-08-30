@@ -18,6 +18,13 @@ import { setKcsResourceGameWebContentsId } from './kcs-resource'
 import { handleNewWindow, handleWebviewPreloadHack, stopFileNavigate } from './webcontent-utils'
 import broadcaster = require('./game-api-broadcaster')
 import { GAME_URL_CONFIG_KEY, normalizeGameUrl } from '../shared/game-url'
+import {
+  computeGameLayout,
+  GAME_SCALE_DEFAULTS,
+  GAME_SCALE_PATHS,
+  normalizeGameScaleMode,
+  normalizeGameScaleStep,
+} from '../shared/game-scale'
 import { cleanUserAgent } from '../shared/user-agent'
 import {
   cssRectToViewBounds,
@@ -593,6 +600,11 @@ export class GameHostManager {
       if (this.effectiveMode !== 'embedded' || !this.hostView || !this.embeddedBounds) return
       this.hostView.setBounds(this.presentedBounds('embedded', this.embeddedBounds))
     })
+    ipcMain.on('game-scale:changed', (event) => {
+      if (!this.isWorkbench(event) || this.effectiveMode !== 'detached') return
+      if (!this.hostView || !this.detachedBounds) return
+      this.hostView.setBounds(this.presentedBounds('detached', this.detachedBounds))
+    })
     ipcMain.handle('game-host:get-bootstrap', (event) => {
       if (!this.isHost(event)) return null
       return {
@@ -674,6 +686,7 @@ export class GameHostManager {
     for (const channel of [
       'game-window:bounds',
       'game-window:occluded',
+      'game-scale:changed',
       'game-host:ready',
       'game-host:overlay',
       'game-host:action',
@@ -762,9 +775,24 @@ export class GameHostManager {
   }
 
   private presentedBounds(surface: GameWindowMode, bounds: RectLike): RectLike {
-    return surface === 'embedded' && this.workbenchOccluded
-      ? { x: 0, y: 0, width: 0, height: 0 }
-      : bounds
+    if (surface === 'embedded') {
+      return this.workbenchOccluded ? { x: 0, y: 0, width: 0, height: 0 } : bounds
+    }
+    // 独立窗口没有工作台里的 #game-wrapper，因此由主进程用同一份 beta3 判据
+    // 把宿主 View 摆在可用区中央。保留 detachedBounds 为完整区域，切档时即可原地重算。
+    const layout = computeGameLayout({
+      areaWidth: bounds.width,
+      areaHeight: bounds.height,
+      mode: normalizeGameScaleMode(config.get(GAME_SCALE_PATHS.mode, GAME_SCALE_DEFAULTS.mode)),
+      lockStep: normalizeGameScaleStep(config.get(GAME_SCALE_PATHS.step, GAME_SCALE_DEFAULTS.step)),
+      uiZoom: 1,
+    })
+    return {
+      x: bounds.x + Math.round(layout.barX),
+      y: bounds.y + Math.round(layout.barY),
+      width: Math.round(layout.width),
+      height: Math.round(layout.height),
+    }
   }
 
   private broadcastState() {

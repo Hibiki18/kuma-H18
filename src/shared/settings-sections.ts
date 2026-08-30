@@ -8,7 +8,7 @@
 //  · **每张卡恰好属于一类**。表是唯一出处（卡的次序也从这里来），
 //    渲染层只消费；护栏从渲染产物逐张数，漏一张、重一张都当场红。
 //  · **维护者工具不进发行版**。这张表列全部的卡，`settingsCardsOf` 按 `debugUi`
-//    过滤——所以完备性护栏要按**两种形态**各数一遍（发行版 19 张 / 调试 21 张）。
+//    过滤——所以完备性护栏要按**两种形态**各数一遍（发行版 22 张 / 调试 24 张）。
 //
 // 类名用玩家词汇、两三个字：页签是给人扫一眼定位的，不是分类学。
 
@@ -20,6 +20,7 @@ export type SettingsSectionId = 'ui' | 'archive' | 'network' | 'lode' | 'health'
  */
 export type SettingsCardId =
   | 'zoom'
+  | 'game-scale'
   | 'game-window'
   | 'ui-hints'
   | 'tray'
@@ -59,8 +60,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     id: 'ui',
     label: '界面',
     // 看得见、听得见的那些：开了就当场变样，所以排第一，也是默认落点。
-    // 自检那张紧跟着音量卡——它诊断的就是那三条滑条，隔开摆反而要来回找
-    cards: ['zoom', 'game-window', 'ui-hints', 'tray', 'game-audio', 'game-audio-selftest'],
+    // 自检那张紧跟着音量卡——它诊断的就是那三条滑条，隔开摆反而要来回找。
+    // 游戏画面紧跟界面缩放：两张说的都是「东西多大」，而且界面缩放一动，
+    // 游戏那边的锁定档也跟着重摆一次；游戏窗口卡紧随其后，三张一起管游戏区的呈现
+    cards: ['zoom', 'game-scale', 'game-window', 'ui-hints', 'tray', 'game-audio', 'game-audio-selftest'],
   },
   {
     id: 'archive',

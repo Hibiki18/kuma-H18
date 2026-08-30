@@ -167,6 +167,7 @@ export const mountYu = ({
   const stubs = {
     electron: {
       ipcRenderer: {
+        send: (channel) => invoked.push(channel),
         invoke: (channel) => {
           invoked.push(channel)
           if (channel === 'lode:list') return Promise.resolve(lodes)

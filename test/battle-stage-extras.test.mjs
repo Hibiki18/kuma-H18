@@ -54,14 +54,43 @@ const parseBattleFixture = (name, mutate) => {
 
 // ---- 支援舰队点名 ----
 
-test('真报文：支援炮击那一段记下第几舰队与六条舰的 mstId', () => {
-  const view = parseBattleFixture('each-battle-support')
+// 真报文里 api_ship_id 给的是 [711,3224,4460,2460,983,202]，**那是在籍 ID 不是 mstId**
+// （apilist 逐字：「支援艦隊の編成艦ID [6] マスターIDではないので注意」；账本里这六个
+// 也逐条对上 ship_life_state 的在籍 ID，分别是 mst 464/538/916/546/541/573）。
+// 所以这里的 ctx 要按在籍 ID 摆出第 3 舰队的真实编成，断言的是回查之后的 mstId。
+const SUPPORT_ROSTER = [
+  [711, 464], [3224, 538], [4460, 916], [2460, 546], [983, 541], [202, 573],
+]
+const ctxWithSupportDeck = () => {
+  const base = ctx()
+  return {
+    ...base,
+    fleetShips: (deckId) =>
+      deckId === 3
+        ? SUPPORT_ROSTER.map(([rosterId, mstId]) => ({
+            rosterId,
+            mstId,
+            name: `S${mstId}`,
+            lv: 99,
+            nowHp: 50,
+            maxHp: 50,
+            equipments: [],
+          }))
+        : base.fleetShips(deckId),
+  }
+}
+
+test('真报文：支援炮击那一段记下第几舰队，成员按在籍 ID 回查成 mstId', () => {
+  const one = pick(battleFixtures, 'each-battle-support')
+  const view = parseBattle(one.path, one.battle, ctxWithSupportDeck(), 0)
   const stage = view.stages.find((one) => one.phase === 'support')
   assert.ok(stage, '支援阶段应当在')
   assert.deepEqual(stage.support, {
     deckId: 3,
-    shipMstIds: [711, 3224, 4460, 2460, 983, 202],
+    shipMstIds: SUPPORT_ROSTER.map(([, mstId]) => mstId),
   })
+  // 在籍 ID 不能原样漏下去：3224 这种值撞进主数据就是深海舰名或「#3224」
+  assert.ok(!stage.support.shipMstIds.some((id) => id === 3224 || id === 4460))
 })
 
 test('支援编成缺席（旧报文 / 支援航空）：不写这个键', () => {
@@ -82,7 +111,7 @@ test('渲染：支援编成前三名摆行内、全员进悬停，一行不撑�
         stageOf(0, '支援舰队', null, {
           phase: 'support',
           source: 'api_support_info',
-          support: { deckId: 3, shipMstIds: [711, 3224, 4460, 2460, 983, 202] },
+          support: { deckId: 3, shipMstIds: [464, 538, 916, 546, 541, 573] },
         }),
       ],
     }),
@@ -90,7 +119,7 @@ test('渲染：支援编成前三名摆行内、全员进悬停，一行不撑�
   )
   assert.match(html, /第3舰队/)
   assert.match(html, /等6舰/)
-  assert.equal((html.match(/711/g) ?? []).length >= 1, true)
+  assert.equal((html.match(/464/g) ?? []).length >= 1, true)
 })
 
 test('渲染：没有支援编成就不出这一行', () => {

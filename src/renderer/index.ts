@@ -14,6 +14,8 @@ import type { BgmArchiveEntry } from '../shared/bgm-archive-plan'
 import { setVoiceHost } from './kcs-voice'
 import { installEquipIconFallback } from './equip-icon'
 import { installEntityArtFallback } from './entity-art'
+import { getGameScaleMode, getGameScaleStep, setGameScaleApplier } from './game-scale'
+import { computeGameLayout } from '../shared/game-scale'
 import { getUiZoom, initKernel, initUiZoom, mg, onUiZoom, openBrowseWindow, setUiZoom } from './kernel'
 import { initBgmPreview } from './bgm-preview'
 import { initPreviewBar } from './preview-bar'
@@ -86,6 +88,28 @@ const $ = <T extends HTMLElement>(selector: string): T => {
   if (!el) throw new Error(`missing element: ${selector}`)
   return el
 }
+
+// ---- 游戏画面布局 ----
+// 游戏本体位于主进程管理的 WebContentsView 中。这里通过调整占位盒尺寸，再把
+// 占位盒的精确坐标上报给主进程，实现 beta3 的自适应/固定倍率，而不重建游戏会话。
+const gameArea = $('#game-area')
+const gameWrapper = $('#game-wrapper')
+const gameLayoutNow = () => {
+  const area = gameArea.getBoundingClientRect()
+  return computeGameLayout({
+    areaWidth: area.width,
+    areaHeight: area.height,
+    mode: getGameScaleMode(),
+    lockStep: getGameScaleStep(),
+    uiZoom: getUiZoom(),
+  })
+}
+const applyGameLayout = () => {
+  const layout = gameLayoutNow()
+  gameWrapper.style.width = layout.locked ? `${layout.width}px` : ''
+  scheduleEmbeddedGameBounds()
+}
+new ResizeObserver(() => applyGameLayout()).observe(gameArea)
 
 // ---- 头部按钮 ----
 $('#btn-reload').addEventListener('click', () => {
@@ -211,7 +235,10 @@ document.addEventListener('keydown', (e) => {
     setUiZoom(1.15)
   }
 })
-onUiZoom(() => scheduleEmbeddedGameBounds())
+// 界面缩放改变时，固定倍率的占位宽度也要按同一系数重新计算。
+onUiZoom(() => applyGameLayout())
+// 钥里切换模式/档位时当场重摆；注册时也会应用启动配置。
+setGameScaleApplier(() => applyGameLayout())
 initGameWindowClient(() => {
   setFocus(false)
   syncFocusBtn(false)
@@ -221,6 +248,7 @@ document.addEventListener('kanso:game-window-state', ((event: CustomEvent) => {
   const detached = event.detail?.effectiveMode === 'detached' && event.detail?.phase !== 'ATTACHING'
   setGameDetachedLayout(detached)
   focusBtn.disabled = event.detail?.phase !== 'EMBEDDED'
+  if (!detached) applyGameLayout()
 }) as EventListener)
 
 // ---- 启动点亮（测试性功能，钥里默认关）----

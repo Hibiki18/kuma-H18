@@ -76,13 +76,41 @@ export const SPECIAL_ATTACK_SEGMENT_ORDER: Readonly<Record<number, readonly numb
   105: [0, 0, 1], // Richelieu
   106: [0, 0, 1], // Queen Elizabeth
   200: [0, 0], // 瑞云夜袭
-  300: [1, 1, 2, 2],
+  300: [1, 1, 2, 2], // 潜水舰队：段数不固定，见 specialAttackSegmentOrder
   301: [2, 2, 3, 3],
   302: [1, 1, 3, 3],
   400: [0, 1, 2], // 大和型三舰
   401: [0, 0, 1], // 大和型两舰
   1000: [0, 0, 0, 0, 0, 0],
 }
+
+/**
+ * 潜水舰队攻击（300/301/302）一次发动是 **2～4 段**：两条参战潜艇各先打一次，
+ * 各自还可能再打第二次。只有两段时是「两条各打一次」，照上面那张四段表原样
+ * 截前两位会把第二条的那一击也记到第一条头上——逐舰伤害、MVP、击沉归属跟着一起错。
+ *
+ * 两票：
+ * - KC3Kai `BattlePrediction/phases/Hougeki.js` 对这三个号写的就是
+ *   `damages.length <= 2 ? [1, 2] : [1, 1, 2, 2]`（301/302 同构）；
+ * - 同项目的 kancolle-replay `js/kcsim.js` `getSpecialAttackShips` 把出手顺序摊成
+ *   `[潜A, (潜A), 潜B, (潜B)]`，两个可选段各自按等级/潜水舰电探/概率决定发不发。
+ *
+ * **三段这一档两边都判不出来**：KC3 在同一处注明「no proper way to predict 3 hits
+ * torpedo attacks have merged 2 hits from which submarine」，所以三段沿用四段表的前三位，
+ * 不另立说法。
+ */
+const SUBMARINE_TWO_SEGMENT_ORDER: Readonly<Record<number, readonly number[]>> = {
+  300: [1, 2],
+  301: [2, 3],
+  302: [1, 3],
+}
+
+/** 按这一次实际摊出的段数取分段表；只有潜水舰队攻击的两段档与上表不同。 */
+export const specialAttackSegmentOrder = (
+  ci: number,
+  segments: number,
+): readonly number[] | undefined =>
+  (segments <= 2 ? SUBMARINE_TWO_SEGMENT_ORDER[ci] : undefined) ?? SPECIAL_ATTACK_SEGMENT_ORDER[ci]
 
 const nameOf = (ship: FleetSpecialAttackShip | undefined): string =>
   ship?.name.replace(/\s+/g, ' ').trim() ?? ''

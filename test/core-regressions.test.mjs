@@ -1868,7 +1868,12 @@ test('battle categories keep air raids, air battles, radar fire, and night trans
   assert.match(renderer, /return '开幕夜战'/)
 })
 
-test('legacy 1-based support and torpedo arrays keep attacker and target indexes aligned', () => {
+// 这条原本连支援数组一起断言「长度 7 = 1 基占位」，2026-08-30 被一份真报文判死：
+// 支援数组是**定长**的（单队 7 槽 / 敌联合 12 槽，敌不满员补零），下标就是敌舰位。
+// 判死过程与样本见 test/support-fleet-phase.test.mjs 与 fixtures/support-shelling-fixed-slots.json。
+// 雷击那半边不受影响：它的前导占位是同一份报文的 api_ship_ke / api_e_nowhps 自己带的，
+// 偏移从 HP 舰表推得，不是按长度猜的。
+test('支援数组按敌舰位落位；雷击的前导占位仍随 HP 舰表换算', () => {
   const support = parseBattle(
     '/kcsapi/api_req_sortie/battle',
     {
@@ -1883,8 +1888,9 @@ test('legacy 1-based support and torpedo arrays keep attacker and target indexes
     battleContext(),
     0,
   )
-  assert.equal(support.eShips[0].hpEnd, 88)
-  assert.equal(support.attacks[0].hits[0].target, 0)
+  assert.equal(support.eShips[1].hpEnd, 88, '下标 1 就是敌 #1，不让开占位')
+  assert.equal(support.eShips[0].hpEnd, 100, '敌 #0 这一场没挨支援')
+  assert.equal(support.attacks[0].hits[0].target, 1)
 
   const torpedo = parseBattle(
     '/kcsapi/api_req_sortie/battle',

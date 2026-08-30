@@ -52,8 +52,11 @@ const releaseBannerActions = (id: string) => {
 const reportBounds = () => {
   frame = 0
   const area = document.querySelector<HTMLElement>('#game-area')
-  if (!area || area.hidden) return
-  const rect = area.getBoundingClientRect()
+  const wrapper = document.querySelector<HTMLElement>('#game-wrapper')
+  if (!area || area.hidden || !wrapper) return
+  // beta3 的固定倍率写在占位盒上；把盒子的边界交给主进程，原生 WebContentsView
+  // 才会与工作台里的居中位置、黑边和界面缩放保持一致。
+  const rect = wrapper.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return
   ipcRenderer.send(
     'game-window:bounds',
