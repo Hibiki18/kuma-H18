@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -6,6 +7,11 @@ import {
   cssRectToViewBounds,
   restoreWindowBounds,
 } from '../dist/shared/game-window.js'
+
+test('workbench keeps a DOM placeholder for native game view bounds', () => {
+  const html = fs.readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
+  assert.match(html, /<div id="game-area"[^>]*>[\s\S]*?<div id="game-wrapper"><\/div>/)
+})
 
 test('game view bounds follow renderer zoom once and reject invalid rectangles', () => {
   assert.deepEqual(

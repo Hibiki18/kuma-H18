@@ -8246,7 +8246,10 @@
             <div class="dock-panes" data-panes="left"></div>
           </aside>
           <div class="splitter v" data-split="left" title="拖动调整左坞 · 双击折叠"></div>
-          <div id="game-area" aria-label="游戏画面"></div>
+          <div id="game-area" aria-label="游戏画面">
+            <!-- 原生 WebContentsView 的定位占位盒；游戏本体仍由主进程托管，不挂进 DOM。 -->
+            <div id="game-wrapper"></div>
+          </div>
           <div class="splitter v" data-split="right" title="拖动调整右坞 · 双击折叠"></div>
           <aside class="dock" data-dock="right">
             <div class="dock-tabs" data-tabs="right"></div>
