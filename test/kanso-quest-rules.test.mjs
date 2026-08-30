@@ -6,7 +6,7 @@ import kanso from '../dist/main/mg/kanso-quest-rules.js'
 import kcwiki from '../dist/main/mg/kcwiki-quest-rules.js'
 
 const { buildKansoQuestRules } = kanso
-const { buildKcwikiRuleContext } = kcwiki
+const { buildKcwikiRuleContext, evaluateFleetGoal } = kcwiki
 
 const s2Url = new URL('../../s2.json', import.meta.url)
 const fcdUrl = new URL('../assets/lodes/poi-fcd-map.json', import.meta.url)
@@ -27,10 +27,23 @@ const context = buildKcwikiRuleContext(masterRaw)
 const rules = buildKansoQuestRules(context, masterRaw, fcd)
 const byId = new Map(rules.map((rule) => [rule.questId, rule]))
 
+// 编成门的实弹检验共用：按舰名造一支舰队，字段与 evaluateFleetGoal 要的一致。
+// 名字顺序就是队列顺序——旗舰门与 position 门都靠它。
+const shipByName = new Map((masterRaw.api_mst_ship ?? []).map((s) => [s.api_name, s]))
+const shipView = (name) => {
+  const s = shipByName.get(name)
+  assert.ok(s, `master 缺 ${name}`)
+  return { mstId: s.api_id, stype: s.api_stype, ctype: s.api_ctype, soku: s.api_soku, lv: 99 }
+}
+const gatePasses = (questId, names, deckId = 1) =>
+  evaluateFleetGoal(byId.get(questId).fleetGoal, names.map(shipView), deckId).ok
+
 test('艦素补充规则全部解析成功——名字解析失败会整条丢弃，掉数就是有名字烂了', () => {
-  // 草稿表共 49 条——49 条缺口每条都有规则。少一条就说明某个名字没解析出来
+  // 草稿表共 63 条——63 条缺口每条都有规则。少一条就说明某个名字没解析出来
   // （构建时会打 warn），那是数据错误不是可接受的降级。
-  assert.equal(rules.length, 49, `解析出 ${rules.length} 条`)
+  // 2026-08-30 近代化改修族 714-717 补进草稿表（+4），718/719 早已在表内；
+  // 同日演习族十条（Cm2/Cq4/Cy1/Cy3/Cy6/Cy7/Cy12/Cy13/Cy14/Cy16）补进（+10）。
+  assert.equal(rules.length, 63, `解析出 ${rules.length} 条`)
   for (const rule of rules) {
     assert.ok(
       rule.tasks.length || rule.fleetGoal || rule.stateGoal || rule.stockGoals?.length,
@@ -187,4 +200,127 @@ test('B149 含旗舰口径：Fletcher 本人算在美英澳荷 3 艘里，3美1�
   const b172 = byId.get(957)
   const yamakaze = [view('山風改二丁'), view('Johnston改'), view('時雨改三'), view('鵜来改')]
   assert.equal(evaluateFleetGoal(b172.fleetGoal, yamakaze, 1).ok, true)
+})
+
+test('只给舰种/舰级的组不许落在 ships:"any" 上——那是「任意舰都算」的短路分支', () => {
+  // selectorMatches 把 `ships === 'any'` 写在最前面：一旦落上它，同一组的
+  // stypes/ctypes 根本读不到。group() 的缺省一度就是 'any'，于是只写舰种的门
+  // 全部形同虚设（B152「正规空母2艘」实测被两艘驱逐舰蒙混过关）。
+  // 真要「任意舰」的那一条（B155 的全队规模上限）自己显式写，所以这里只查
+  // 「写了 'any' 却还挂着舰种/舰级」这一种组合。
+  for (const rule of rules) {
+    for (const g of rule.fleetGoal?.groups ?? []) {
+      if (g.ships !== 'any') continue
+      assert.deepEqual(
+        [g.stypes ?? [], g.ctypes ?? []],
+        [[], []],
+        `${rule.code} 的「${g.label}」用 ships:'any' 盖住了自己的舰种/舰级条件`,
+      )
+    }
+    const secretary = rule.stateGoal?.secretary
+    if (secretary?.ships === 'any') {
+      assert.deepEqual(secretary.stypes ?? [], [], `${rule.code} 的秘书舰门被 'any' 盖住了`)
+    }
+  }
+  assert.equal(gatePasses(924, ['赤城改', '加賀改']), true)
+  assert.equal(gatePasses(924, ['雪風改', '時雨改']), false, 'B152 的正规空母门被两艘驱逐舰蒙过去了')
+  // F117 的秘书舰门同理：潜水舰系才算
+  const f117 = byId.get(1129).stateGoal.secretary
+  assert.deepEqual(f117.stypes, [13, 14])
+  assert.notEqual(f117.ships, 'any')
+})
+
+test('Cm2：演习「胜利」按 B 判定读，且只认第一舰队', () => {
+  const rule = byId.get(318)
+  assert.deepEqual(rule.tasks, [{ kind: 'exercise', rank: 4, count: 3 }])
+  // 战斗粮食那一半仍是本地判不了的门，计数照给但不等于可交付
+  assert.equal(rule.partial, true)
+  assert.equal(rule.fleetGoal.fleetId, 1)
+  assert.equal(gatePasses(318, ['球磨改', '多摩改', '雪風改'], 1), true)
+  assert.equal(gatePasses(318, ['球磨改', '多摩改', '雪風改'], 2), false, '第二舰队打演习游戏不算')
+  assert.equal(gatePasses(318, ['球磨改', '大井改', '雪風改'], 1), false, '雷巡不是「軽巡」')
+})
+
+test('Cq4：驱逐/海防 ≥3 且三者合计 ≥4——3 驱逐 + 1 轻巡级不许被拦下', () => {
+  // 原文的「(軽巡級1隻導入可能)」被自研推导当「允许不是要求」丢掉了，剩下的
+  // 「驱逐/海防4艘」比游戏严，是硬伤方向：游戏算的编成我们拦。
+  assert.equal(gatePasses(342, ['雪風改', '時雨改', '曙改', '球磨改']), true)
+  assert.equal(gatePasses(342, ['雪風改', '時雨改', '曙改', '漣改']), true, '四艘全驱逐照旧')
+  assert.equal(gatePasses(342, ['雪風改', '時雨改', '球磨改', '多摩改']), false, '轻巡顶两艘不行')
+  assert.equal(gatePasses(342, ['雪風改', '時雨改', '曙改']), false, '合计只有 3 艘')
+  // 「軽巡級1隻」是给凑数那 4 艘定的上限，不是全队上限：
+  // 4 驱逐 + 2 轻巡（后两艘是自由舰）游戏照算
+  assert.equal(gatePasses(342, ['雪風改', '時雨改', '曙改', '漣改', '球磨改', '多摩改']), true)
+})
+
+test('Cy1：七艘里凑四艘，不是「必须四艘驱逐舰」', () => {
+  assert.equal(gatePasses(345, ['Warspite', '金剛改二', 'Ark Royal', 'Nelson']), true)
+  assert.equal(gatePasses(345, ['Warspite', '金剛改二', 'Jervis改', 'Javelin']), true)
+  assert.equal(gatePasses(345, ['雪風改', '時雨改', '曙改', '漣改']), false, '随便四艘驱逐舰不算')
+  assert.equal(gatePasses(345, ['Warspite', '金剛改二', 'Ark Royal']), false, '只有 3 艘')
+  assert.equal(byId.get(345).approx, false, '门落地了就不该再标 ≈')
+})
+
+test('Cy3：雷巡当不了旗舰，但算在凑数的 3 艘轻巡级里', () => {
+  // 日文原文的「雷巡を除く」只挂在旗舰那一维；memo2 与 poi 把凑数那一维也写成
+  // 不含雷巡，比原文严一格——严的方向不跟。
+  assert.equal(gatePasses(348, ['球磨改', '大井改', '多摩改', '雪風改', '時雨改']), true)
+  assert.equal(gatePasses(348, ['大井改', '球磨改', '多摩改', '雪風改', '時雨改']), false, '雷巡旗舰')
+  assert.equal(gatePasses(348, ['球磨改', '多摩改', '雪風改', '時雨改']), false, '轻巡级只有 2 艘')
+  assert.equal(gatePasses(348, ['球磨改', '大井改', '多摩改', '雪風改']), false, '驱逐舰只有 1 艘')
+})
+
+test('Cy6：Gambier Bay Mk.II 旗舰 + Fletcher 級/John C.Butler 級 2 艘', () => {
+  assert.equal(gatePasses(354, ['Gambier Bay Mk.II', 'Fletcher改', 'Samuel B.Roberts改']), true)
+  // 按舰级判不按人名判：同为 Fletcher 級的 Richard P.Leary 也算（memo2 那句「四选二」没算她）
+  assert.equal(gatePasses(354, ['Gambier Bay Mk.II', 'Richard P.Leary改', 'Johnston改']), true)
+  assert.equal(gatePasses(354, ['Fletcher改', 'Gambier Bay Mk.II', 'Johnston改']), false, '旗舰不是她')
+  assert.equal(gatePasses(354, ['Gambier Bay Mk.II', 'Fletcher改']), false, '僚舰只有 1 艘')
+})
+
+test('Cy7：另一艘必须在 2 号位', () => {
+  assert.equal(byId.get(355).fleetGoal.groups[1].position, 2)
+  assert.equal(gatePasses(355, ['黒潮改二', '親潮改二', '雪風改']), true)
+  assert.equal(gatePasses(355, ['親潮改二', '黒潮改二', '雪風改']), true)
+  assert.equal(gatePasses(355, ['黒潮改二', '雪風改', '親潮改二']), false, '亲潮在 3 号位')
+  assert.equal(gatePasses(355, ['黒潮改二', '雪風改', '時雨改']), false, '只带了旗舰一艘')
+})
+
+test('Cy12：春雨必须旗舰，另外五艘里再凑三艘', () => {
+  assert.equal(gatePasses(371, ['春雨改二', '村雨改二', '夕立改二', '時雨改二']), true)
+  assert.equal(gatePasses(371, ['村雨改二', '春雨改二', '夕立改二', '時雨改二']), false, '春雨不是旗舰')
+  assert.equal(gatePasses(371, ['春雨改二', '村雨改二', '夕立改二']), false, '春雨不许顶凑数名额')
+})
+
+test('Cy13：「他に」——那 2 艘驱逐舰在秋月型旗舰之外', () => {
+  assert.equal(gatePasses(372, ['秋月改', '雪風改', '時雨改', '伊勢改二', '日向改二']), true)
+  assert.equal(gatePasses(372, ['秋月改', '雪風改', '伊勢改二', '日向改二']), false, '僚驱只有 1 艘')
+  assert.equal(gatePasses(372, ['雪風改', '秋月改', '時雨改', '伊勢改二', '日向改二']), false, '旗舰不是秋月型')
+  assert.equal(gatePasses(372, ['秋月改', '雪風改', '時雨改', '伊勢改二']), false, '航空战舰只有 1 艘')
+})
+
+test('Cy14：法国舰 3 艘，且旗舰也得是法国舰', () => {
+  assert.equal(gatePasses(373, ['Richelieu', 'Commandant Teste', 'Algérie', '雪風改']), true)
+  assert.equal(gatePasses(373, ['雪風改', 'Richelieu', 'Commandant Teste', 'Algérie']), false)
+  assert.equal(gatePasses(373, ['Richelieu', 'Commandant Teste', '雪風改']), false, '只有 2 艘法国舰')
+})
+
+test('Cy16：旗舰限早霜/秋霜/清霜，四艘里凑三艘（旗舰算在内）', () => {
+  assert.equal(gatePasses(377, ['早霜改二', '秋霜改', '朝霜改二']), true)
+  assert.equal(gatePasses(377, ['朝霜改二', '早霜改二', '秋霜改']), false, '朝霜当不了旗舰')
+  assert.equal(gatePasses(377, ['早霜改二', '朝霜改二']), false, '只有 2 艘')
+})
+
+test('演习族十条：门落地之后一条 ≈ 都不剩', () => {
+  // 这十条原先落在自研推导那一档，编成条件读不准的一律标 ≈（Cy1/Cy3/Cy12/Cy16 四条
+  // 真标了）。既然门按日文原文逐条落地，就不该再有「计数可能偏多」这层怀疑；
+  // 318/Cm2 的 partial 是另一回事（战斗粮食那一半本地判不了），留着。
+  for (const questId of [318, 342, 345, 348, 354, 355, 371, 372, 373, 377]) {
+    const rule = byId.get(questId)
+    assert.ok(rule, `${questId} 没有规则`)
+    assert.equal(rule.approx, false, `${rule.code} 还标着 ≈`)
+    assert.equal(rule.tasks.length, 1)
+    assert.equal(rule.tasks[0].kind, 'exercise')
+    assert.ok(rule.fleetGoal?.groups.length, `${rule.code} 没有编成门`)
+  }
 })

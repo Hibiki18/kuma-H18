@@ -1762,6 +1762,91 @@ const reducers: Record<string, Reducer> = {
     return ['ships']
   },
 
+  // ---- 换装三条（slotset / slotset_ex / unsetslot_all）----
+  //
+  // 这三条的响应体**只有 api_result**，一个字的舰船数据都没有（账本实样 941 /
+  // 88 / 56 份，无一例外），所以要变的状态只能照 POST 参数自己推。
+  //
+  // 参数名与编号基逐个对着账本实样核过：
+  // · `api_id` 是**在籍 id**；
+  // · `api_slot_idx` 是常规格下标，**0-based**（实样取值 0..4）；
+  // · `api_item_id` 是装备**实例 id**，**-1 = 把这一格卸空**
+  //   （slotset 18 份、slotset_ex 3 份 -1 实样）。
+  //
+  // 为什么明明有 ship3 兜底还要补：游戏每次换装后**自己会再请求一次**
+  // `api_get_member/ship3`，账本里 941/941 紧跟其后、且 200/200 请求的正是刚动过
+  // 的那艘舰，间隔 ≤731ms——所以这个缺口平时只漏不到一秒，不是什么长期错账。
+  // 补它是为了别把账面正确性挂在「客户端一定会补那一枪」上：那一枪掉了
+  // （断线、艦素中途启动、报文丢包）就再没有第二个人来纠。
+
+  '/kcsapi/api_req_kaisou/slotset': (_body, post) => {
+    const ship = state.player.ships[Number(post.api_id)]
+    const idx = Number(post.api_slot_idx)
+    if (!ship || !Array.isArray(ship.slot)) return []
+    if (!Number.isInteger(idx) || idx < 0 || idx >= ship.slot.length) return []
+    const raw = Number(post.api_item_id)
+    const next = Number.isInteger(raw) && raw > 0 ? raw : -1
+    let changed = false
+    // 一件实例只能待在一个地方。装上来之前先把它从这艘舰的别处摘掉，否则同一件
+    // 会在两格里各算一次——泊地修理的覆盖数、制空、对空 CI 数的都是「格数」。
+    if (next > 0) {
+      for (let i = 0; i < ship.slot.length; i += 1) {
+        if (i !== idx && ship.slot[i] === next) {
+          ship.slot[i] = -1
+          changed = true
+        }
+      }
+      if (ship.slotEx === next) {
+        ship.slotEx = -1
+        changed = true
+      }
+    }
+    if (ship.slot[idx] !== next) {
+      ship.slot[idx] = next
+      changed = true
+    }
+    return changed ? ['ships'] : []
+  },
+
+  '/kcsapi/api_req_kaisou/slotset_ex': (_body, post) => {
+    const ship = state.player.ships[Number(post.api_id)]
+    if (!ship) return []
+    const raw = Number(post.api_item_id)
+    // 补强増設格的三种取值与 open_exslot 同一套：0 = 没开过，-1 = 开了但空着，
+    // 正数 = 那件实例。所以「卸下」落 **-1**，落 0 等于把开好的格子又关上。
+    const next = Number.isInteger(raw) && raw > 0 ? raw : -1
+    let changed = false
+    if (next > 0 && Array.isArray(ship.slot)) {
+      for (let i = 0; i < ship.slot.length; i += 1) {
+        if (ship.slot[i] === next) {
+          ship.slot[i] = -1
+          changed = true
+        }
+      }
+    }
+    if (ship.slotEx !== next) {
+      ship.slotEx = next
+      changed = true
+    }
+    return changed ? ['ships'] : []
+  },
+
+  // 一括解除**只清常规格**：补强増設格在游戏里是单独一颗按钮，而这条的响应体同样
+  // 什么都不带（56 份实样），账上没有任何东西能证明它跟着清。不知道就不动——
+  // 多清一格会把玩家真装着的东西从账面上抹掉，比漏清难查得多。
+  '/kcsapi/api_req_kaisou/unsetslot_all': (_body, post) => {
+    const ship = state.player.ships[Number(post.api_id)]
+    if (!ship || !Array.isArray(ship.slot)) return []
+    let changed = false
+    for (let i = 0; i < ship.slot.length; i += 1) {
+      if (ship.slot[i] !== -1) {
+        ship.slot[i] = -1
+        changed = true
+      }
+    }
+    return changed ? ['ships'] : []
+  },
+
   '/kcsapi/api_req_kaisou/marriage': (body, _post, ts) => {
     if (!body?.api_id) return []
     state.player.ships[body.api_id] = toShip(body)

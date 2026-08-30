@@ -3,15 +3,19 @@
 // ## 为什么要真跑
 //
 // 这条护栏管的是**点哪儿会发生什么**：卡面点了只关闭、「→ ××」点了才跳转。
-// 这一族判断写反了源码文本照样匹配得上（只断言源码文本的护栏在这里会漏）——
-// 把两个 addEventListener 的
+// 这一族判断写反了源码文本照样匹配得上（护栏只断言源码文本会漏，见 ~/.agents/memory
+// 的 source-pattern-guards-miss-logic-bugs 那一条）——把两个 addEventListener 的
 // 回调对调，任何正则都照旧全绿，而玩家那边是「想关掉一条通知，结果被弹去了别的面板」。
 // 冒泡与 stopPropagation 更是纯运行时的事：`.act` 忘了拦冒泡，卡面那条监听器就会跟着跑。
 //
 // 做法照搬 test/fixtures/preview-bgm-dom.mjs：把 src 拷进临时目录、把牵着 electron 与
 // 账本的那一圈换成桩，**与这条护栏有关的那一份用真的**——modules/lg 本体不桩，
-// 否则测的就不是那段代码。入口走 showSortieReadinessToast：它是 lg 里唯一一个
-// 导出的、直通 showToast 的口子，不必先把整个模块 mount 起来。
+// 否则测的就不是那段代码。入口是 lg 导出的两个口子：showSortieReadinessToast 直通
+// showToast，runNotificationDemo 是 ▶ 测试通知那一路（走完整的 notify），两者都不必
+// 先把整个模块 mount 起来。
+//
+// 账本、托盘徽标、ipc 三处桩都记账（`appendNoticeCalls` / `trayUnreadCalls` /
+// `invokeCalls`），测试通知那条护栏要数的正是「演示途中这三样一次都没动过」。
 //
 // ## 这副假 DOM 只做真代码会用到的那几样
 //
@@ -47,9 +51,15 @@ const STUBS = {
       String(s ?? '').replace(/[&<>"']/g, (c) => ENT[c as keyof typeof ENT])
     export const mg: any = { sortie: null, ships: {}, decks: [], ndocks: [], master: { ships: {} }, combinedFlag: 0 }
 ${ESCORT_STATE}
-    export const appendNotice = async (_row: unknown) => null
+    // 账本与托盘这几路各记一笔：▶ 测试通知那条护栏问的正是「有没有人偷偷写了一行」
+    export const appendNotice = async (row: unknown) => {
+      ((globalThis as any).__appendNotice ??= []).push(row)
+      return null
+    }
     export const clearNotices = async () => {}
-    export const markNoticesRead = async (_ids: unknown) => {}
+    export const markNoticesRead = async (ids: unknown) => {
+      ((globalThis as any).__markRead ??= []).push(ids)
+    }
     export const queryNotices = async () => []
     export const queryQp = async () => null
     export const nextJstTime = (_h: number, _m: number) => 0
@@ -63,7 +73,9 @@ ${ESCORT_STATE}
     export const onTick = (_cb: unknown) => {}
     export const onTrayToggleDnd = (_cb: unknown) => {}
     export const pushTrayDnd = async (_on: boolean) => {}
-    export const pushTrayUnread = async (_n: number) => {}
+    export const pushTrayUnread = async (n: number) => {
+      ((globalThis as any).__trayUnread ??= []).push(n)
+    }
     export const repairDuration = (_a: unknown, _b: unknown) => 0
     export const showMainWindow = () => {}
     export const sortieSunkShips = () => []
@@ -95,7 +107,9 @@ ${ESCORT_STATE}
     export const observedCond = (_a: unknown) => null
   `,
   'renderer/lg-test-entry.ts': `
-    export { showSortieReadinessToast } from './modules/lg'
+    export { runNotificationDemo, showSortieReadinessToast } from './modules/lg'
+    // 出击态归内核那份 mg 管，勿扰要靠它才摆得出来（桩与铃看的是同一个对象）
+    export { mg } from './kernel'
   `,
 }
 
@@ -182,9 +196,11 @@ class FakeElement {
     this.parentElement = null
     this.listeners = new Map()
     this.offsetWidth = 0
+    // add/remove 收可变参数：外框光效那一路是 `remove(...五个类名)`，只认第一个的话
+    // 桩就在替真代码作答（横幅色调换挡时旧的那圈光会留在 body 上）
     this.classList = {
-      add: (name) => this.classes.add(name),
-      remove: (name) => this.classes.delete(name),
+      add: (...names) => names.forEach((name) => this.classes.add(name)),
+      remove: (...names) => names.forEach((name) => this.classes.delete(name)),
       contains: (name) => this.classes.has(name),
     }
   }
@@ -322,19 +338,35 @@ const require_ = createRequire(import.meta.url)
  *
  * 计时器是假的（`timers.fire()` 手动催），所以 8 秒的自动关闭不会把
  * `node --test` 拖住 8 秒，也不会留下悬着的句柄。
+ *
+ * `options.gameWrapper`：摆一个 #game-wrapper 进来（数字＝它的 clientWidth，
+ * `true` 当 900 用，0 就是「容器被收起」那一档）。默认不摆——真机上游戏容器
+ * 没就绪时就是这样，宿主退回 body。
+ * `options.config`：配置底稿（键是 config 的完整路径），点击写进去的值也进这份表。
  */
-export const mountLgToast = () => {
+export const mountLgToast = (options = {}) => {
   globalThis.__navigate = []
   globalThis.__activate = []
   globalThis.__lgModule = null
+  globalThis.__appendNotice = []
+  globalThis.__markRead = []
+  globalThis.__trayUnread = []
+  globalThis.__invoke = []
 
+  const wrapper = options.gameWrapper == null ? null : new FakeElement('div')
+  if (wrapper) {
+    wrapper.id = 'game-wrapper'
+    wrapper.clientWidth = options.gameWrapper === true ? 900 : Number(options.gameWrapper)
+  }
   const doc = {
     body: new FakeElement('body'),
     createElement: (tag) => new FakeElement(tag),
-    // #game-wrapper 不在场：宿主退回 body（真机上游戏容器没就绪时就是这样）
-    querySelector: () => null,
+    querySelector: (selector) => (selector === '#game-wrapper' ? wrapper : null),
     addEventListener: () => {},
+    // 窗口有焦点：系统通知那一路就地返回，不去碰 Notification（这台上没有）
+    hasFocus: () => true,
   }
+  if (wrapper) doc.body.appendChild(wrapper)
 
   const timers = []
   const fakeSetTimeout = (fn, ms) => {
@@ -347,9 +379,26 @@ export const mountLgToast = () => {
   }
   const frames = []
 
-  const config = { get: (_path, fallback) => fallback, set: () => {} }
+  const stored = { ...(options.config ?? {}) }
+  const config = {
+    get: (path, fallback) => (path in stored ? stored[path] : fallback),
+    set: (path, value) => {
+      stored[path] = value
+    },
+  }
   const fakeRequire = (id) => {
-    if (id === 'electron') return { ipcRenderer: { on: () => {}, send: () => {}, invoke: async () => null } }
+    if (id === 'electron') {
+      return {
+        ipcRenderer: {
+          on: () => {},
+          send: () => {},
+          invoke: async (channel, payload) => {
+            globalThis.__invoke.push([channel, payload])
+            return null
+          },
+        },
+      }
+    }
     if (id === '@electron/remote') return { require: () => config }
     return require_(id)
   }
@@ -381,15 +430,51 @@ export const mountLgToast = () => {
   )
 
   assert.ok(typeof mod.exports.showSortieReadinessToast === 'function', '铃没把弹卡入口导出来')
+  assert.ok(typeof mod.exports.runNotificationDemo === 'function', '铃没把 ▶ 测试通知的入口导出来')
 
-  const box = () => doc.body.children.find((child) => child.id === 'lg-toasts') ?? null
+  // 整棵树里找那一摞：宿主是 body 还是 #game-wrapper 由玩家选的参照系决定
+  const findBox = (el) => {
+    for (const child of el.children) {
+      if (child.id === 'lg-toasts') return child
+      const found = findBox(child)
+      if (found) return found
+    }
+    return null
+  }
+  const box = () => findBox(doc.body)
+  const findById = (el, id) => {
+    for (const child of el.children) {
+      if (child.id === id) return child
+      const found = findById(child, id)
+      if (found) return found
+    }
+    return null
+  }
   return {
     doc,
     /** 造一张弹卡。走的是真的 showToast（合并、驱逐、倒计时都是那一份） */
     show: (...args) => mod.exports.showSortieReadinessToast(...args),
-    /** 眼下还挂在右下角的那些卡 */
+    /** 点一下 ▶ 测试通知（三条里的后两条挂在计时器上，要 fireTimers 才到） */
+    demo: () => mod.exports.runNotificationDemo(),
+    /** 眼下挂着的置顶横幅 */
+    banners: () => findById(doc.body, 'lg-banners')?.children ?? [],
+    /** 外框光效那圈类名 */
+    bodyClasses: () => [...doc.body.classes],
+    /** 写进账本的通知行 */
+    appendNoticeCalls: () => globalThis.__appendNotice,
+    /** 推给托盘的未读数（updateBadge 一路） */
+    trayUnreadCalls: () => globalThis.__trayUnread,
+    /** 发出去的 ipc（推送就走这里） */
+    invokeCalls: () => globalThis.__invoke,
+    /** 内核那份战况。摆 sortie 进去就是「出击中」，自动勿扰随之生效 */
+    mg: mod.exports.mg,
+    /** 眼下还挂着的那些卡 */
     toasts: () => box()?.children ?? [],
     toast: (index = 0) => box()?.children[index] ?? null,
+    /** 那一摞挂在谁身上（'body' / 'game-wrapper'），以及它认的是哪个角 */
+    boxHost: () => box()?.parentElement?.id || box()?.parentElement?.tag || null,
+    boxCorner: () => box()?.dataset.corner ?? null,
+    config,
     click: clickOn,
     navigateCalls: () => globalThis.__navigate,
     activateCalls: () => globalThis.__activate,

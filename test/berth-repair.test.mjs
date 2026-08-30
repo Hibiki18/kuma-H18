@@ -192,7 +192,8 @@ test('两支队各自结账，互不牵连', () => {
 
 test('几个判据常量钉住，改了要有人知道', () => {
   assert.equal(BERTH_WARMUP_MS, 20 * MIN)
-  assert.equal(REPAIR_FACILITY_MST_ID, 31, '艦艇修理施設的装备 id（取自仓里的真主数据样本）')
+  // 86 = api_mst_slotitem 里的艦艇修理施設。31 是 equiptype 种别 id，取串了计数恒为 0
+  assert.equal(REPAIR_FACILITY_MST_ID, 86, '艦艇修理施設的装备 id（api_mst_slotitem）')
   assert.equal(REPAIR_SHIP_STYPE, 19, '工作艦：明石 / 明石改 / 朝日改 就是它的全部')
 })
 

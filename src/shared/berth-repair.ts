@@ -96,8 +96,16 @@
 /** 满多久才开始回血。满这一刻至少回 1 点（查证 ⑥）。 */
 export const BERTH_WARMUP_MS = 20 * 60 * 1000
 
-/** 艦艇修理施設的装备 master id。取自本仓已有的真主数据样本（test/fixtures/quest-scrap-master.mjs）。 */
-export const REPAIR_FACILITY_MST_ID = 31
+/**
+ * 艦艇修理施設的装备 master id：`api_mst_slotitem` 里的 **86**。
+ *
+ * **31 是 `api_mst_slotitem_equiptype` 的种别 id，别再取那张表。** 两张表都有一行
+ * 叫「艦艇修理施設」，取串了不会报错、只会让计数恒为 0：账上存的 `mstId` 是
+ * `api_slotitem_id`（见 store.ts 的 toSlotitemMap），而 slotitem 86 的
+ * `api_type = [10,20,31,26,0]` —— 那个 31 正是种别 id，不是它自己的 id。
+ * （slotitem 31 是另一件东西：32号対水上電探。）
+ */
+export const REPAIR_FACILITY_MST_ID = 86
 
 /** 工作艦（api_stype）。明石 / 明石改 / 朝日改 就是它的全部，见查证 ①。 */
 export const REPAIR_SHIP_STYPE = 19

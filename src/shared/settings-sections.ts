@@ -8,7 +8,7 @@
 //  · **每张卡恰好属于一类**。表是唯一出处（卡的次序也从这里来），
 //    渲染层只消费；护栏从渲染产物逐张数，漏一张、重一张都当场红。
 //  · **维护者工具不进发行版**。这张表列全部的卡，`settingsCardsOf` 按 `debugUi`
-//    过滤——所以完备性护栏要按**两种形态**各数一遍（发行版 18 张 / 调试 20 张）。
+//    过滤——所以完备性护栏要按**两种形态**各数一遍（发行版 19 张 / 调试 21 张）。
 //
 // 类名用玩家词汇、两三个字：页签是给人扫一眼定位的，不是分类学。
 
@@ -30,6 +30,7 @@ export type SettingsCardId =
   | 'retention'
   | 'backup'
   | 'proxy'
+  | 'game-url'
   | 'login'
   | 'push'
   | 'report'
@@ -40,6 +41,7 @@ export type SettingsCardId =
   // 这里写成同名字符串会把这份分类表误判成第二个消费方
   | 'lode-license'
   | 'cache-repair'
+  | 'mod-dir'
   | 'diagnostics'
   | 'about'
 
@@ -69,8 +71,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'network',
     label: '网络',
-    // 会往外发请求、或决定「发不发」的那些。代理在最前：它一改，下面几张的成败都跟着变
-    cards: ['proxy', 'login', 'push', 'report'],
+    // 会往外发请求、或决定「发不发」的那些。代理在最前：它一改，下面几张的成败都跟着变。
+    // 游戏页面网址紧随其后——「走哪条路」与「去哪一页」是同一件事的两半，
+    // 而登录、推送、上报都建立在这两张之上
+    cards: ['proxy', 'game-url', 'login', 'push', 'report'],
   },
   {
     id: 'lode',
@@ -82,8 +86,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'health',
     label: '诊断',
-    // 出毛病时才来的那一类，外加「关于」——数据目录写在那里，排查时要抄路径
-    cards: ['cache-repair', 'diagnostics', 'about'],
+    // 出毛病时才来的那一类，外加「关于」——数据目录写在那里，排查时要抄路径。
+    // 魔改文件夹紧跟着缓存修复：魔改文件就摆在缓存目录那棵树里（与 poi 的
+    // 「缓存与魔改」同一套摆法），两张卡说的是同一个目录的两件事
+    cards: ['cache-repair', 'mod-dir', 'diagnostics', 'about'],
   },
 ]
 

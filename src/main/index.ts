@@ -9,6 +9,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+import { closeAllBrowseWindows, openBrowseWindow } from './browse-window'
 import config from './config'
 import { installCrashLogging, reportFatal } from './crash-log'
 import { installPerfLogging } from './perf-log'
@@ -31,6 +32,7 @@ import {
   showMainWindow,
 } from './tray'
 import {
+  ensureModDir,
   registerKcsResourceScheme,
   registerKcsResourceProtocol,
   setKcsResourceGameWebContentsId,
@@ -276,6 +278,12 @@ const openQuestTreeWindow = (rawFocusId?: unknown) => {
   })
 }
 
+// 浏览窗：每按一次开新的一扇（不复用、不聚焦已有的那扇——多开本来就是它的用途）。
+// 不把 BrowserWindow 回给渲染层：那东西过不了 IPC 序列化。
+ipcMain.handle('window:browse', () => {
+  openBrowseWindow()
+})
+
 ipcMain.handle('window:quest-tree', (_event, rawFocusId?: unknown) => openQuestTreeWindow(rawFocusId))
 ipcMain.handle('window:quest-tree-focus', (_event, rawQuestId: unknown) => {
   const questId = Number(rawQuestId)
@@ -313,6 +321,9 @@ ipcMain.handle('window:show', () => showMainWindow())
 app.on('ready', () => {
   registerKcsResourceProtocol()
   registerMapArtJson()
+  // 魔改目录先建出来：玩家只要把文件丢进去就行，不必自己新建、也不必找 %APPDATA%。
+  // 建不出来不拦启动（函数内部自己吞并 warn 一条）
+  ensureModDir()
 
   // 窗口位置恢复 + 跨显示器有效性校验（移植自 poi app.ts）
   const { workArea } = screen.getPrimaryDisplay()
@@ -477,6 +488,9 @@ app.on('ready', () => {
     if (questTreeWindow && !questTreeWindow.isDestroyed()) {
       questTreeWindow.close()
     }
+    // 浏览窗是主窗的附属：主窗没了它们不该把应用留在后台（窗口全关才有
+    // window-all-closed → app.quit()，留一扇在那儿等于关不掉）
+    closeAllBrowseWindows()
   })
 
   // DNS over HTTPS（移植自 poi）

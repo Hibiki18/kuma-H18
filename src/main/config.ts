@@ -6,6 +6,7 @@ import path from 'path'
 
 import { atomicWriteJsonSync } from './atomic-json'
 import { APPDATA_PATH, DEFAULT_CACHE_PATH } from './env'
+import { DEFAULT_GAME_URL } from '../shared/game-url'
 import { LAUNCH_GLOW_DEFAULT } from '../shared/launch-glow'
 
 const CONFIG_PATH = path.join(APPDATA_PATH, 'config.json')
@@ -18,7 +19,9 @@ const DEFAULTS: Record<string, unknown> = {
     pacAddr: '',
   },
   kanso: {
-    homepage: 'https://play.games.dmm.com/game/kancolle',
+    // 游戏页面网址（玩家可在钥里改）。默认值与「认不出就回落到哪」是同一份，
+    // 别在这里写字面量——判据在 shared/game-url。
+    homepage: DEFAULT_GAME_URL,
     // DMM 地区 cookie 兜底默认开启（poi 默认关，但对本项目的目标用户这是刚需）
     dmmcookie: true,
     // 把 dmm 域会话 cookie 复写为持久 cookie，重启免登录

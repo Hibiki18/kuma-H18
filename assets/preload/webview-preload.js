@@ -9,6 +9,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 const config = remote.require('./config')
 
+// 判据直接从共享层拿（就在本进程里 require，不走 remote）：游戏页面网址是玩家可配的，
+// 「哪一条真会被加载」只能有一份说法，渲染层装 webview 用的也是这一个函数。
+const { GAME_URL_CONFIG_KEY, normalizeGameUrl } = require('../../dist/shared/game-url')
+
 const { installCapturePage } = require('./capture-page')
 // require cookie-hack 的同时也装上了隔离世界侧的 cookie/UA/重定向处理
 const { installPageHooks } = require('./cookie-hack')
@@ -70,8 +74,11 @@ contextBridge.exposeInMainWorld('kansoPreloadBridge', {
   resolveHackedResource: createResourceResolver(remote),
   isNetworkAlertDisabled: () => config.get('kanso.disablenetworkalert', false),
   getHomepageHost: () => {
+    // normalizeGameUrl 已经把「配置里那条认不出」归到默认上，所以这里拿到的
+    // 一定是渲染层真正加载的那一条——玩家把网址写坏时，主世界那道
+    // document.write 拦截不会跟着一起失效。
     try {
-      return new URL(config.get('kanso.homepage', config.getDefault('kanso.homepage'))).host
+      return new URL(normalizeGameUrl(config.get(GAME_URL_CONFIG_KEY))).host
     } catch (_e) {
       return ''
     }

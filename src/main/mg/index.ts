@@ -242,6 +242,22 @@ const handleEvent = (
     apiPath === '/kcsapi/api_req_kaisou/powerup'
       ? store.getState().player.ships[Number(postBody.api_id)]
       : undefined
+  // 近代化改修的**素材舰**在归约里当场被删（removeRosterShips），事后再问
+  // 「刚才喂进去的是 3 艘什么舰」永远查不到——Gy1-Gy4/G10-G11 的素材舰种条件
+  // 只能靠动作前这一份 在籍 id → 图鉴 id。只记本次涉及的几艘，不复制整份在籍表。
+  const powerupShipIds =
+    apiPath === '/kcsapi/api_req_kaisou/powerup'
+      ? (() => {
+          const ships = store.getState().player.ships
+          const ids = [
+            Number(postBody.api_id),
+            ...`${postBody.api_id_items ?? ''}`.split(',').map((id) => Number(id)),
+          ]
+          const out: Record<number, number> = {}
+          for (const id of ids) if (id > 0 && ships[id]) out[id] = ships[id].shipId
+          return out
+        })()
+      : undefined
   // 结婚**前**那一刻的形态与等级（通常 Lv99）。必须在 store.handle 之前取：
   // 归约跑完那艘舰已经是 Lv100 了，「当时等级」就再也说不出来。
   // 认舰先认请求侧的 api_id（同族的 remodeling / open_exslot / powerup 都是这个键），
@@ -310,7 +326,7 @@ const handleEvent = (
     if (snapshotId && sortie?.battle?.result) sortie.battle.result.snapshotId = snapshotId
   }
   // 任务精确计数 + 遭遇志：都在状态归约之后（依赖已更新的 sortie/decks）
-  onQuestApi(apiPath, body, postBody, { destroyedSlotitems, expeditionMissionId })
+  onQuestApi(apiPath, body, postBody, { destroyedSlotitems, expeditionMissionId, powerupShipIds })
   onChronicleApi(apiPath, body, postBody, ts)
   onShipLifeApi(apiPath, body, postBody, ts, sections, { hangarCapsBefore })
   // 任务领取 → 特别战果。

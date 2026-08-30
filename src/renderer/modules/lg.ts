@@ -66,6 +66,15 @@ import {
   observedCond,
 } from '../fatigue'
 import { clampPushIdleMinutes, PUSH_CONFIG_PATHS, PUSH_DEFAULTS } from '../../shared/push-config'
+import {
+  readToastPosition,
+  TOAST_ANCHOR_LABEL,
+  TOAST_ANCHORS,
+  TOAST_ANCHORS_READY,
+  TOAST_CORNER_LABEL,
+  TOAST_CORNERS,
+  TOAST_POSITION_PATHS,
+} from '../../shared/toast-position'
 
 const { ipcRenderer } = require('electron')
 const remote = require('@electron/remote')
@@ -200,6 +209,8 @@ interface NotifyPresentation {
   /** 同上：同一事件下分档的徽记（修 / 神）。只靠颜色分档，实机上并排看会糊。 */
   icon?: string
   priority?: 'default' | 'normal'
+  /** 只演示不落账（▶ 测试通知）。三样不碰：通知记录、未读徽标、手机推送。见 notify 里那一档。 */
+  demo?: boolean
 }
 
 // 通知的落点：有具体对象就走实体路由，否则切到该事件的宿主模块
@@ -515,21 +526,39 @@ const beep = (crit: boolean) => {
   }
 }
 
-// ---- Toast（游戏画面右下堆叠 · 不拦游戏操作）----
+// ---- Toast（按玩家选的角落堆叠 · 不拦游戏操作）----
 
 let toastBox: HTMLElement | null = null
+
+const currentToastPosition = () =>
+  readToastPosition((path, fallback) => config.get(path, fallback))
+
+// 摆位置。宿主由参照系决定：游戏画面挂 #game-wrapper（它自己是定位上下文、不裁内容），
+// kuma 窗口挂 body（面板既裁 overflow 又是 transform 包含块，浮层一律挂 body）。
+// 选了游戏画面但容器没就绪或被收起（clientWidth=0）时退回 body——通知不能跟着容器
+// 一起隐身。四角由 data-corner 交给 CSS，见 index.html 的 #lg-toasts 那几条。
+// 每次显示都重估一遍，搬 DOM 不丢已在显示的通知。
+const placeToastBox = (box: HTMLElement) => {
+  const { anchor, corner } = currentToastPosition()
+  const wrapper = anchor === 'game' ? document.querySelector<HTMLElement>('#game-wrapper') : null
+  const host = wrapper && wrapper.clientWidth > 0 ? wrapper : document.body
+  // 先打角落再挂进去：没有 data-corner 的那一瞬间四个方向的偏移全不成立
+  if (box.dataset.corner !== corner) box.dataset.corner = corner
+  if (box.parentElement !== host) host.appendChild(box)
+}
+
 const ensureToastBox = () => {
   if (!toastBox) {
     toastBox = document.createElement('div')
     toastBox.id = 'lg-toasts'
   }
-  // 挂游戏画面的右下角而非应用窗口右下（用户 2026-08-11 定的位置）。
-  // 游戏容器没就绪或被收起（clientWidth=0）时退回 body 右下——通知不能
-  // 跟着容器一起隐身。每次显示都重估宿主，搬 DOM 不丢已在显示的通知。
-  const wrapper = document.querySelector<HTMLElement>('#game-wrapper')
-  const host = wrapper && wrapper.clientWidth > 0 ? wrapper : document.body
-  if (toastBox.parentElement !== host) host.appendChild(toastBox)
+  placeToastBox(toastBox)
   return toastBox
+}
+
+// 改设置时把已经挂上的那摞就地搬过去，不等下一条通知
+const applyToastPlacement = () => {
+  if (toastBox) placeToastBox(toastBox)
 }
 
 // Toast 的自动关闭计时：合并进新内容时要清旧表重走，不能让先到的那条
@@ -1070,22 +1099,28 @@ const notify = (
     read: false,
     ref,
   }
-  log.unshift(notice)
-  log = log.slice(0, 500)
-  void appendNotice({
-    ts: notice.ts,
-    session: SESSION,
-    event: eventId,
-    title,
-    detail,
-    ref: ref ? JSON.stringify(ref) : null,
-    read: false,
-  }).then((id) => {
-    notice.dbId = id
-    // 落盘慢于用户点击时，那次点击只改了内存态；补一次写回
-    if (id != null && notice.read) void markNoticesRead([id])
-  })
-  if (route.badge) updateBadge()
+  // 演示档（▶ 测试通知）：往下的展示层照当前规则与位置设置原样走一遍——那正是玩家点
+  // 它的目的；但这一条不是真事件，所以**记录、未读徽标、手机推送**三样一概不碰。
+  // 演示不该在账本里留一行，也不该真把玩家的手机叫醒（远征那条默认就开着推送）。
+  const demo = presentation.demo === true
+  if (!demo) {
+    log.unshift(notice)
+    log = log.slice(0, 500)
+    void appendNotice({
+      ts: notice.ts,
+      session: SESSION,
+      event: eventId,
+      title,
+      detail,
+      ref: ref ? JSON.stringify(ref) : null,
+      read: false,
+    }).then((id) => {
+      notice.dbId = id
+      // 落盘慢于用户点击时，那次点击只改了内存态；补一次写回
+      if (id != null && notice.read) void markNoticesRead([id])
+    })
+    if (route.badge) updateBadge()
+  }
   const blocking = presentation.priority !== 'normal' && !!def.locked
   // 置顶横幅接管新舰与大破的前台视觉，避免再叠一张内容重复的右下 Toast。
   // 设置关闭横幅时，大破仍回退到原有强制 Toast，不会丢掉安全提醒。
@@ -1107,15 +1142,35 @@ const notify = (
   // ② 不合并：一个时刻一条，手机通知栏上数得清。
   // ③ 不跟 blocking：强制提醒承诺的是「在这台机器上一定看得见」，
   //    而推送是出网动作，只由用户手动打开，任何强制条款都不替他开。
-  if (routed('push')) pushOrHold(notice, title, detail, displayDef.label)
-  if (!blocking && dndActive() && (toast || sound || system)) {
+  // ④ 演示不出网：测试通知只看效果，一个字节都不该发出去。
+  if (routed('push') && !demo) pushOrHold(notice, title, detail, displayDef.label)
+  // 演示无视勿扰：玩家专门点了那个按钮就是要当场看见，攒到归港再送达等于没演示。
+  if (!demo && !blocking && dndActive() && (toast || sound || system)) {
     holdNotice({ def: displayDef, title, detail, toast, system, sound, ref })
   } else {
     if (toast) showToast(displayDef, title, detail, ref)
     if (sound) beep(blocking)
     if (system) showSystemNotice(displayDef, title, detail, ref)
   }
-  renderIfActive()
+  // 演示什么记录都没改，面板不必重画（这一路不活跃时还会顺手动徽标）
+  if (!demo) renderIfActive()
+}
+
+/**
+ * ▶ 测试通知：三条样例只走展示层（见上面的 demo 一档）。三条之间错开，是为了让玩家
+ * 依次看清横幅、Toast 与强制提醒各自落在哪儿，而不是三样同刻糊在一起。
+ *
+ * 导出是给护栏用的：test/lg-demo-notify.test.mjs 直接摇这个口子，真弹一遍再数账
+ * （「不落账、不推手机」这类判定写反了，只断言源码文本的护栏照样全绿）。
+ */
+export const runNotificationDemo = () => {
+  const demo: NotifyPresentation = { demo: true }
+  notify('newShip', '测试 · 新舰入库：矶风', '请确认已上锁 · 金色横幅需手动关闭', undefined, demo)
+  setTimeout(
+    () => notify('expedition', '测试 · 远征返港', '普通提醒示例（按当前通知规则显示）', undefined, demo),
+    450,
+  )
+  setTimeout(() => notify('taiha', '测试 · 大破警告', '红色横幅需手动关闭', undefined, demo), 900)
 }
 
 // ---- 探测器 ----
@@ -1757,6 +1812,37 @@ const condCellHtml = (def: EventDef): string => {
   return esc(def.note)
 }
 
+// 弹窗位置卡：参照系一排按钮 + 一块 5:3 的取景框，四角各一枚可点的格子。
+// 取景框中间写的是当前参照系的名字，四角的实心点就是弹卡会出现的地方。
+//
+// 每个可点的东西自带 data-toast-part（写哪个叶子）与 data-toast-value（写什么值），
+// 两样出自同一个元素——点击那边只有一条分支，参照系与角落的键值不可能对调。
+const toastPositionCardHtml = (): string => {
+  const { anchor, corner } = currentToastPosition()
+  const chips = TOAST_ANCHORS.map((id) => {
+    // 还没实装的参照系留在原位但不可点：藏起来会让人以为这一档不存在
+    if (!TOAST_ANCHORS_READY.includes(id)) {
+      return `<span class="tp-chip off">${esc(TOAST_ANCHOR_LABEL[id])} · 未开放</span>`
+    }
+    return `<span class="tp-chip${
+      id === anchor ? ' on' : ''
+    }" data-toast-part="anchor" data-toast-value="${id}">${esc(TOAST_ANCHOR_LABEL[id])}</span>`
+  }).join('')
+  const cells = TOAST_CORNERS.map(
+    (id) =>
+      `<span class="tp-cell${
+        id === corner ? ' on' : ''
+      }" data-toast-part="corner" data-toast-value="${id}" title="${esc(
+        TOAST_CORNER_LABEL[id],
+      )}"><i></i></span>`,
+  ).join('')
+  return `<div class="rcard compact" style="--hc:var(--dock)">
+    <div class="h"><b>弹窗位置</b><span class="aux">参照系 × 四角</span></div>
+    <div class="g-row">${chips}</div>
+    <div class="tp-frame">${cells}<em>${esc(TOAST_ANCHOR_LABEL[anchor])}</em></div>
+  </div>`
+}
+
 // 从别处（timer 实体的「为它设提醒」）跳进来时，高亮对应规则行
 let highlightEvent: string | null = null
 
@@ -1872,9 +1958,10 @@ const render = () => {
         <span class="lk" data-act="readall">全部已读</span>
       </div>
       <div class="c-list">${listHtml || '<div style="padding:30px 16px;color:var(--dim);font-size:12px;line-height:1.8">还没有通知</div>'}</div>
-      <div class="c-foot"><span class="lk" data-act="clear" title="删除账本里的全部通知历史，不影响规则与阈值">清空历史</span><span class="lk" data-act="test">▶ 测试通知</span></div>
+      <div class="c-foot"><span class="lk" data-act="clear" title="删除账本里的全部通知历史，不影响规则与阈值">清空历史</span><span class="lk" data-act="test" title="只弹出来看效果，不写入通知历史，也不会推送到手机">▶ 测试通知</span></div>
     </aside>
     <div class="right">
+      ${toastPositionCardHtml()}
       <div class="rcard" style="--hc:var(--gold)">
         <div class="h"><b>通知规则</b><span class="aux">事件 × 通知方式</span></div>
         <div class="g-row">
@@ -1951,9 +2038,7 @@ registerModule({
         return
       }
       if (act === 'test') {
-        notify('newShip', '测试 · 新舰入库：矶风', '请确认已上锁 · 金色横幅需手动关闭')
-        setTimeout(() => notify('expedition', '测试 · 远征返港', '普通提醒示例（按当前通知规则发送）'), 450)
-        setTimeout(() => notify('taiha', '测试 · 大破警告', '红色横幅需手动关闭'), 900)
+        runNotificationDemo()
         return
       }
       const extraToggle = t.closest<HTMLElement>('[data-extra]')
@@ -1962,6 +2047,16 @@ registerModule({
         extras[key] = !extras[key]
         saveExtras()
         render()
+        return
+      }
+      const place = t.closest<HTMLElement>('[data-toast-part]')
+      if (place) {
+        const part = place.dataset.toastPart as keyof typeof TOAST_POSITION_PATHS
+        if (TOAST_POSITION_PATHS[part]) {
+          config.set(TOAST_POSITION_PATHS[part], place.dataset.toastValue)
+          applyToastPlacement()
+          render()
+        }
         return
       }
       const stack = t.closest<HTMLElement>('[data-stack]')

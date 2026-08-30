@@ -610,8 +610,12 @@ test('equipment inventory sync persists and replays without breaking scrap quest
   assert.match(store, /slotitems: state\.player\.slotitems/)
   assert.match(main, /'slotitems',/)
   assert.match(main, /destroyedSlotitemIds\(postBody\)/)
-  // context 同时带动作前的被删实例与远征 missionId（归约器会把 deck.mission 清零）
-  assert.match(main, /onQuestApi\(apiPath, body, postBody, \{ destroyedSlotitems, expeditionMissionId \}\)/)
+  // context 一律带**动作前**才拿得到的那几样：被删的装备实例、远征 missionId
+  // （归约器会把 deck.mission 清零）、近代化改修双方的图鉴 id（素材舰当场被删）
+  assert.match(
+    main,
+    /onQuestApi\(apiPath, body, postBody, \{ destroyedSlotitems, expeditionMissionId, powerupShipIds \}\)/,
+  )
   assert.match(main, /loadSlotitemMutationsSince\(slotitemBaselineTs\)/)
   assert.match(ledger, /loadLatestSlotitemList =/)
   assert.match(ledger, /loadSlotitemMutationsSince =/)
@@ -2730,8 +2734,14 @@ test('fleet view stays complete during expeditions and only hints forward remode
   // 结构性断言原样保留，只是不再要求 export。
   assert.match(fleet, /const fleetViewHtml = \(deck: Deck\) =>[\s\S]*fleetShips\(deck\)\.map/)
   assert.doesNotMatch(fleet, /tag = `远征/)
-  assert.match(modules, /mods\.length === 1 && \(mods\[0\] === 'zi' \|\| mods\[0\] === 'ru' \|\| mods\[0\] === 'ji'\)/)
-  assert.match(html, /\.dock-group\.tabless > \.dock-tabs \{ display: none; \}/)
+  // 2026-08-30 反转：原先资源/编队/图鉴独占一格时不铺标签条（.tabless），省下的
+  // 高度让给内容。但右键标签出「移动到」是换坞换格唯一的入口，没标签的那一格就
+  // 再也挪不动——玩家得先把两个模块凑进同一格才看得见标签，而凑模块要用的正是
+  // 这个菜单。tabless 整层退役，两个文件都不许回潮（渲染侧与样式侧各堵一头）。
+  assert.doesNotMatch(modules, /tabless/, '单模块格又开始省标签条了')
+  assert.doesNotMatch(html, /tabless/, '藏标签条的样式又回来了')
+  assert.match(modules, /tabs\.className = 'dock-tabs'/)
+  assert.doesNotMatch(modules, /mods\.length === 1 &&/, '标签条又挂上「格里几个模块」的条件了')
   assert.match(fleet, /import \{ invalidateRemodelOrder, progressiveRemodelOf.*\} from '\.\.\/remodel'/)
   assert.match(remodel, /export const progressiveRemodelOf =/)
   // 档位写实际那一档：铃谷改的下一档是改二，一律写「改」等于没说。
@@ -3478,7 +3488,7 @@ test('roster is an independent section inside the catalog instead of a duplicate
   const host = fs.readFileSync(new URL('../src/renderer/mu.ts', import.meta.url), 'utf8')
   const index = fs.readFileSync(new URL('../src/renderer/index.ts', import.meta.url), 'utf8')
   const html = fs.readFileSync(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
-  const readme = fs.readFileSync(new URL('../docs/开发指南.md', import.meta.url), 'utf8')
+  const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8')
   assert.match(catalog, /type Book = 'ship' \| 'roster' \| 'equip'/)
   assert.match(catalog, /\['roster', '列表'\]/)
   assert.match(catalog, /\['ship', '舰娘'\],[\s\S]*\['item', '道具'\],\s*\['roster', '列表'\]/)
@@ -3495,7 +3505,10 @@ test('roster is an independent section inside the catalog instead of a duplicate
   assert.doesNotMatch(roster, /registerModule\(\{\s*id: 'qa'/)
   assert.doesNotMatch(roster, /data-act="to-ji"/)
   assert.match(host, /left: \[\['ji'\]\]/)
-  assert.match(host, /mods\[0\] === 'zi' \|\| mods\[0\] === 'ru' \|\| mods\[0\] === 'ji'/)
+  // 这里原来还顺带钉着「图鉴独占左坞时省掉标签条」（.tabless）。2026-08-30 标签条改
+  // 恒显之后那条断言与本测试的题意（列表是图鉴的一卷，不再是独立坞模块）无关，
+  // 上面的 left: [['ji']] 已经把「左坞只有图鉴」守住了。恒显本身的护栏在
+  // 「fleet view stays complete during expeditions」那条里。
   assert.doesNotMatch(host, /\['qa', /)
   assert.doesNotMatch(index, /import '\.\/modules\/qa'/)
   assert.match(html, /\.mod-ji \.roster-embed/)
@@ -5101,7 +5114,7 @@ test('the Windows one-click launcher starts from its own folder and preserves st
   const launcher = fs.readFileSync(new URL('../启动kuma.cmd', import.meta.url), 'utf8')
   const packager = fs.readFileSync(new URL('../scripts/package-win.mjs', import.meta.url), 'utf8')
   const packageJson = fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
-  const readme = fs.readFileSync(new URL('../docs/开发指南.md', import.meta.url), 'utf8')
+  const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8')
   assert.match(launcher, /cd \/d "%~dp0"/)
   assert.match(launcher, /if not exist "node_modules\\\.bin\\electron\.cmd"/)
   assert.match(launcher, /call npm\.cmd install/)
@@ -6884,7 +6897,7 @@ test('实体名要么可点，要么本来就没有跳转目标——不许生�
 
 test('打包不许把工作目录里的杂物一起塞进产物', async () => {
   // ignore 是「列举排除」式的：根目录冒出新东西就会被默默打进去。
-  // 实测踩过——某个工具在点开头的隐藏目录下开的 git worktree（整份仓库副本）
+  // 实测踩过——agent 会话在 .claude/worktrees/ 下开的 git worktree（整份仓库副本）
   // 进了 app.asar：26.8 MB / 529 个文件，而那目录事后被删，只在产物里留下幽灵拷贝。
   // 清掉后 22.1 MB / 227 个文件。
   //
@@ -6893,7 +6906,7 @@ test('打包不许把工作目录里的杂物一起塞进产物', async () => {
   const { PACKAGE_IGNORE, isPackageIgnored } = await import('../scripts/lib/package-ignore.mjs')
   assert.ok(PACKAGE_IGNORE.length >= 5, '排除清单被清空了')
   const excluded = [
-    '/.git/config', '/.cache/worktrees/x/package.json', '/.gitignore', '/.packager-tmp/a',
+    '/.git/config', '/.claude/worktrees/x/package.json', '/.gitignore', '/.packager-tmp/a',
     '/src/main/index.ts', '/test/core-regressions.test.mjs', '/scripts/build.mjs',
     '/release/kuma-win32-x64/x.exe', '/assets/review/quest-pre-reconcile.json',
     '/启动kuma.cmd', '/kuma.lnk', '/tsconfig.json',
@@ -6907,10 +6920,10 @@ test('打包不许把工作目录里的杂物一起塞进产物', async () => {
     // 而这个文件名前面多一个点）——2026-08-21 拆 asar 时实测它确实进了产物。
     '/node_modules/.package-lock.json',
     '/docs/combat-bonus-sources.md', // 维护者侧规格文档，玩家产物里是噪音
-    // 仓库首页 README 是**玩家视角**那一份，开发者文档在 docs/（已被上面 docs/ 那条盖住）。
-    // 两份都不进 asar：产物里的说明书只有 使用说明.md 一份（走 extraResource 落在产物根，
-    // 不靠 asar），两份说明书打架比没有还糟。
-    // `README-*.md` 那半条正则留着：将来再冒出分版本的 README，别漏。
+    // 仓库 README 是开发者文档（构建、抓取、目录结构）。玩家那份是 使用说明.md，
+    // 走 extraResource 落在产物根，不靠 asar。
+    // README-玩家版.md 是**仓库首页**的玩家视角那一份，同样不进 asar：
+    // 产物里的说明书只有 使用说明.md 一份，两份说明书打架比没有还糟。
     '/README.md', '/README-玩家版.md',
     // 外挂 sourcemap：发行版构建不生成它，这条闸拦的是「拿开发构建的 dist 直接打包」
     '/dist/renderer/index.js.map', '/dist/renderer/quest-tree.js.map',
@@ -9023,20 +9036,27 @@ test('各队走向速览：一队一行并排比，判别沿用现成的带路�
   // difficulty 是 2026-08-26 接活动图带路时加的第五个参数：活动图规则按难度分叉
   assert.match(
     atlas,
-    /routeOutlook\(plannedRoutes\(code, route, deck\.id, phase, difficulty\), bossLetters\)/,
+    /routeOutlook\(plannedRoutes\(code, route, deck\.id, phase, difficulty\), targetLetters\)/,
   )
-  assert.match(atlas, /\$\{fleetOutlookHtml\(info, code, route, bossLetters\)\}/, '没接进海域详情')
+  assert.match(
+    atlas,
+    /\$\{fleetOutlookHtml\(info, code, route, routeTarget\.target\)\}/,
+    '没接进海域详情',
+  )
   // 整行可点，落到与 tab 同一个切换（两套切换迟早走样）
   assert.match(atlas, /class="fo-lane\$\{on\}" data-map-forecast-deck=/)
   assert.match(html, /\.mod-ji \.fo-lane \{/)
 
-  // Boss 点位只认自己的记录：主数据不下发哪个点是 Boss，
-  // 拿「路线终点」冒充在有分支的图上会指错点
-  assert.match(atlas, /bossCells \?\? \[\]/)
-  assert.match(atlas, /Boss 位置未知/)
-  // 「不拿路线终点冒充：有分支的图上那会指错点」那句悬停按文案清扫裁定（族 2 自证
-  // 清白）删了，留在屏上的正文照旧说明「没打到过就不标」。护栏钉正文 + 那条真行为。
-  assert.ok(atlas.includes('这张图还没打到过 Boss，所以不标 Boss 点'), 'Boss 未知时没说明不标')
+  // 走向按玩家**选定的**目标点算：多血条图上旧段 Boss 会一直占着目标位，
+  // 而捞船的人本来就故意停在旧段 Boss。默认值仍取自你打过的 Boss 记录。
+  assert.match(atlas, /const routeTargetOf = /)
+  assert.match(atlas, /resolveRouteTarget\(/)
+  assert.match(atlas, /data-map-route-target=/)
+  assert.ok(atlas.includes('未选目标点'), '没选目标点时该直说没选')
+  assert.ok(
+    atlas.includes('还没打到过 Boss；从「目标点」里挑一个，走向就按它算'),
+    '没有 Boss 记录时没指路到目标点选择器',
+  )
   assert.ok(!atlas.includes('bossLetters.add(route[route.length - 1]'), '又拿路线终点当 Boss 了')
 
   // 带路上下文里除 passed/phase 外全由这支队决定，而推演会在每格上再问一次。
@@ -9834,7 +9854,7 @@ test('三维成长分层：一手上限优先、kcwiki 的 -1 当缺、缺资料
   assert.match(catalog, /growthRows\.every\(\(row\) => !row\)/)
 })
 
-test('受损语音弹幕按播放时刻血量分四档，通知弹窗锚在游戏画面右下', () => {
+test('受损语音弹幕按播放时刻血量分四档，通知弹窗默认锚在游戏画面右下', () => {
   // 弹幕着色（用户 2026-08-11，小破/中破/大破/击沉四档）：我方 19/20/21 是
   // 全舰统一受损语音槽、22=轟沈（wikiwiki 语音表 100+ 舰实证），深海
   // damage 槽=音轨后缀 30/31、sunk=40/41。受损音轨按战斗视图实际血量分：
@@ -9857,11 +9877,11 @@ test('受损语音弹幕按播放时刻血量分四档，通知弹窗锚在游�
       new RegExp(`\\.voice-danmaku-item\\.dmg-${tone} \\{ color: var\\(--voice-dmg-${tone}\\); \\}`),
     )
   }
-  // 通知弹窗（用户 2026-08-11）：锚游戏画面右下角、宽度压 250（他嫌 300 宽）；
-  // 容器收起时退回 body，通知不能跟着容器一起隐身
-  const bell = fs.readFileSync(new URL('../src/renderer/modules/lg.ts', import.meta.url), 'utf8')
-  assert.match(bell, /wrapper && wrapper\.clientWidth > 0 \? wrapper : document\.body/)
-  assert.match(bell, /if \(toastBox\.parentElement !== host\) host\.appendChild\(toastBox\)/)
+  // 通知弹窗（用户 2026-08-11）：默认锚游戏画面右下角、宽度压 250（他嫌 300 宽）；
+  // 容器收起时退回 body，通知不能跟着容器一起隐身。
+  // 参照系与角落自 2026-08-29 起玩家可选（3×4），「默认位置没变」与「容器收起退回 body」
+  // 已改由行为级护栏看着——test/lg-toast-position.test.mjs 真造一张卡，看它最后挂在谁身上。
+  // 这里只留 CSS 那两条：假 DOM 里没有布局，量不出来。
   assert.match(html, /#game-wrapper > #lg-toasts \{ position: absolute; \}/)
   assert.match(html, /#lg-toasts \{ position: fixed;[^\n]*width: min\(250px/)
 })
@@ -11404,7 +11424,8 @@ test('手机推送：默认全关、目标可选（ntfy 默认 / Bark 次选）�
 
   // —— 推送不跟勿扰、不合并、不被强制提醒带着走 ——
   // （在场门槛是另一回事：那一档不出网、进补发队列，守卫在下面那条测试里）
-  assert.match(lg, /if \(routed\('push'\)\) pushOrHold\(notice, title, detail, displayDef\.label\)/)
+  // demo 是 ▶ 测试通知那一档（纯演示，不出网）；行为级的守卫在 test/lg-demo-notify.test.mjs
+  assert.match(lg, /if \(routed\('push'\) && !demo\) pushOrHold\(notice, title, detail, displayDef\.label\)/)
   assert.doesNotMatch(lg, /routed\('push'\) \|\| blocking/, '强制提醒把推送一并打开了')
   assert.doesNotMatch(
     lg,

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kuma · 浏览窗</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg0: #0d1318;
+      --bg1: #121a21;
+      --bg2: #18232d;
+      --bg3: #20303d;
+      --line: #2a3a47;
+      --line-soft: #202d37;
+      --text: #d8e2e9;
+      --sub: #9eb0bd;
+      --dim: #607583;
+      --accent: #63b6de;
+      --accent-dim: #367c9e;
+      --mono: 'Maple Mono NF CN', 'Cascadia Code', 'Consolas', monospace;
+      font-family: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg0); color: var(--text); }
+    #browse-root { height: 100%; display: flex; flex-direction: column; }
+    .nav-bar {
+      flex: none; display: flex; align-items: center; gap: 6px;
+      height: 38px; padding: 0 8px;
+      border-bottom: 1px solid var(--line); background: var(--bg1);
+      -webkit-user-select: none; user-select: none;
+    }
+    .nav-bar button {
+      flex: none; font: inherit; font-size: 11.5px; line-height: 1;
+      padding: 5px 10px; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--line-soft); background: var(--bg2); color: var(--sub);
+    }
+    .nav-bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .nav-bar button:disabled { opacity: .35; cursor: default; }
+    #nav-address {
+      flex: 1; min-width: 0; font: 11.5px var(--mono); color: var(--text);
+      padding: 5px 9px; border-radius: 4px;
+      border: 1px solid var(--line-soft); background: var(--bg0);
+    }
+    #nav-address::placeholder { color: var(--dim); font-family: 'Segoe UI', 'Microsoft YaHei UI', sans-serif; }
+    #nav-address:focus { outline: none; border-color: var(--accent-dim); background: var(--bg2); }
+    #browse-view { flex: 1; min-height: 0; position: relative; background: #fff; }
+    #browse-view webview { position: absolute; inset: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="browse-root">
+    <div class="nav-bar">
+      <button id="nav-back" type="button" title="后退一页">后退</button>
+      <button id="nav-forward" type="button" title="前进一页">前进</button>
+      <button id="nav-home" type="button" title="回到起始页（DMM 的舰C页）">主页</button>
+      <input id="nav-address" type="text" spellcheck="false" autocomplete="off"
+             aria-label="网址" placeholder="输入网址，回车打开">
+    </div>
+    <div id="browse-view"></div>
+  </div>
+  <script src="./browse.js"></script>
+</body>
+</html>

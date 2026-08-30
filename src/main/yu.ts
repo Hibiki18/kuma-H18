@@ -8,10 +8,12 @@ import path from 'path'
 import { createHash } from 'crypto'
 import { pipeline } from 'stream/promises'
 
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain, shell, webContents } from 'electron'
 
 import config = require('./config')
 import { APPDATA_PATH } from './env'
+import { GAME_URL_CONFIG_KEY, normalizeGameUrl } from '../shared/game-url'
+import { ensureModDir } from './kcs-resource'
 import ledger from './mg/ledger'
 import { registerCriticalQuitWork } from './quit-guard'
 
@@ -159,6 +161,45 @@ ipcMain.handle('yu:relaunch', () => {
 })
 
 ipcMain.handle('yu:appdata-path', () => APPDATA_PATH)
+
+/**
+ * 「魔改文件夹 → 打开文件夹」。**开之前先 ensure 一次**：启动时建过一遍了，
+ * 但玩家可能自己把它删了、或者中途在设置里换了缓存路径——那样按钮就会打开一个
+ * 不存在的路径，系统只会静静地什么也不做。开不开得起来由 shell 说了算，
+ * 失败原因回给渲染层弹出来（与「打开 crash.log」同一种做法）。
+ */
+ipcMain.handle('yu:open-mod-dir', async () => {
+  const dir = ensureModDir()
+  const message = await shell.openPath(dir)
+  if (message) console.warn('[kanso] yu: 打开魔改目录失败', dir, message)
+  return { ok: !message, path: dir, message }
+})
+
+/**
+ * 「游戏页面网址 → 重新载入游戏页面」。
+ *
+ * 这件事**不能交给顶栏那个刷新按钮**：它是 `webview.reload()`，重新取的是页面
+ * 此刻停在的那条 URL，跟配置里刚改的那条没有关系——玩家会按下去、看着页面确实刷新了，
+ * 然后以为新网址不生效。所以给一条明确的路：按配置里那条重新导航。
+ *
+ * 游戏页在主窗口的 webview 里，而全应用只有那一个（多余的 webview 在
+ * will-attach-webview 那道门就被挡掉了），按类型找即可，不必再传一个 id 进来。
+ */
+ipcMain.handle('yu:reload-game-url', async () => {
+  const url = normalizeGameUrl(config.get(GAME_URL_CONFIG_KEY))
+  const game = webContents
+    .getAllWebContents()
+    .find((contents) => !contents.isDestroyed() && contents.getType() === 'webview')
+  if (!game) return { ok: false, url }
+  try {
+    await game.loadURL(url)
+  } catch (error) {
+    // 导航被打断（ERR_ABORTED）也走这里，不是每一次都算失败；真加载不上时
+    // 游戏页那层 did-fail-load 会把错误码原样铺在浮层上，这里只留一行给 crash.log
+    console.warn('[kanso] yu: 游戏页重新载入未完成', url, error)
+  }
+  return { ok: true, url }
+})
 
 /**
  * 随发行版分发的说明文件（NOTICE.md / LICENSE / 使用说明.md）的绝对路径。

@@ -3397,9 +3397,11 @@ class Ledger {
       const edges = this.db
         .prepare('SELECT to_cell, COUNT(*) n FROM routes WHERE map = ? AND to_cell > 0 GROUP BY to_cell')
         .all(map)
-      // Boss 点由你自己打过的记录认定（fcd 不标 Boss），拿不到就不标，不猜
+      // Boss 点由你自己打过的记录认定（fcd 不标 Boss），拿不到就不标，不猜。
+      // 带上各点最近一次遭遇：多血条图有好几个 Boss 点，展示侧要按「最近打的那个」
+      // 挑默认目标点，光有点号分不出先后。
       const bosses = this.db
-        .prepare('SELECT DISTINCT cell FROM encounters WHERE map = ? AND is_boss = 1')
+        .prepare('SELECT cell, MAX(ts) last FROM encounters WHERE map = ? AND is_boss = 1 GROUP BY cell')
         .all(map)
       return {
         cells: cells.map((c: any) => ({ cell: c.cell, count: c.n, lastTs: c.last })),
@@ -3407,6 +3409,7 @@ class Ledger {
         sortieCount: sorties?.n ?? 0,
         edges: edges.map((e: any) => ({ cell: e.to_cell, count: e.n })),
         bossCells: bosses.map((b: any) => b.cell as number),
+        bossSeen: bosses.map((b: any) => ({ cell: b.cell as number, lastTs: Number(b.last) })),
         localDrops: this.queryLocalDrops(map),
       }
     } catch (e) {

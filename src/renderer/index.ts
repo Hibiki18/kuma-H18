@@ -14,7 +14,7 @@ import type { BgmArchiveEntry } from '../shared/bgm-archive-plan'
 import { setVoiceHost } from './kcs-voice'
 import { installEquipIconFallback } from './equip-icon'
 import { installEntityArtFallback } from './entity-art'
-import { getUiZoom, initKernel, initUiZoom, mg, onUiZoom, setUiZoom } from './kernel'
+import { getUiZoom, initKernel, initUiZoom, mg, onUiZoom, openBrowseWindow, setUiZoom } from './kernel'
 import { initBgmPreview } from './bgm-preview'
 import { initPreviewBar } from './preview-bar'
 import { initLink } from './link'
@@ -45,6 +45,8 @@ import {
   launchDigitsPlan,
   rippleOrder,
 } from '../shared/launch-glow'
+import { GAME_URL_CONFIG_KEY, normalizeGameUrl } from '../shared/game-url'
+import { cleanUserAgent } from '../shared/user-agent'
 import { initHeaderStatus } from './header-status'
 import { initVoiceSubtitles } from './voice-subtitle'
 // 模块导入即注册（Tab 顺序由各自 order 决定）
@@ -81,8 +83,9 @@ const PRELOAD_URL = pathToFileURL(
 ).href
 const GAME_WIDTH = 1200
 
-// UA 清洗：去掉 Electron / kanso 标记（poi 同款手法）
-const USER_AGENT = navigator.userAgent.replace(/Electron[^ ]* /, '').replace(/kanso[^ ]* /, '')
+// UA 清洗：去掉 Electron 与应用名那两段（poi 同款手法）。判据在 shared/user-agent，
+// 浏览窗引的是同一个——这里原先自己写了一份找 `kanso/` 的正则，改名之后一直空转。
+const USER_AGENT = cleanUserAgent(navigator.userAgent)
 
 const $ = <T extends HTMLElement>(selector: string): T => {
   const el = document.querySelector<T>(selector)
@@ -150,7 +153,10 @@ const createGameView = () => {
   )
   view.setAttribute('preload', PRELOAD_URL)
   view.setAttribute('useragent', USER_AGENT)
-  view.src = config.get('kanso.homepage')
+  // 网址是玩家可配的（钥 · 游戏页面网址）。**必须过一遍判据**：配置里那条写坏了
+  // 就回落到默认，否则一次手滑就是整块游戏区白着，而且在设置里改回来也救不了——
+  // 那时候他已经看不出白屏是自己粘错了一行造成的。
+  view.src = normalizeGameUrl(config.get(GAME_URL_CONFIG_KEY))
 
   view.addEventListener('dom-ready', () => {
     webviewReady = true
@@ -184,6 +190,10 @@ new ResizeObserver(() => applyZoomDebounced()).observe(gameWrapper)
 // ---- 头部按钮 ----
 $('#btn-reload').addEventListener('click', () => {
   webview?.reload()
+})
+// 浏览窗：按一次开一扇新的，各开各的、各关各的
+$('#btn-browse').addEventListener('click', () => {
+  void openBrowseWindow()
 })
 $('#btn-capture').addEventListener('click', async () => {
   if (!webview) return

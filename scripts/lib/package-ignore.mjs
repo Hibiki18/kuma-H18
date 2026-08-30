@@ -3,7 +3,7 @@
 // 而「这条正则到底拦不拦得住那个路径」正是源码文本看不出来的那部分。
 //
 // 这是「列举排除」式的：根目录冒出任何新东西都会被默默打进产物。
-// 实测踩过一次——某个工具在点开头的隐藏目录下开的 git worktree
+// 实测踩过一次——agent 会话在 .claude/worktrees/ 下开的 git worktree
 // （整份仓库副本）被打进了 app.asar，4.6 MB，而且那目录事后就被删了，
 // 只在产物里留下一份幽灵拷贝。所以点开头的一律不打。
 //
@@ -15,14 +15,13 @@
 import { BUNDLED_LODE_FILES, NEVER_BUNDLED_LODE_IDS } from './bundled-lodes.mjs'
 
 export const PACKAGE_IGNORE = [
-  /^\/\.[^/]+(?:\/|$)/, // .git / .github / .cache / .packager-tmp / .gitignore …
+  /^\/\.[^/]+(?:\/|$)/, // .git / .github / .claude / .packager-tmp / .gitignore …
   /^\/(?:src|test|scripts|release|docs)(?:\/|$)/, // docs/ 是维护者侧的规格文档，玩家产物里是噪音
   /^\/assets\/review(?:\/|$)/,
   /^\/(?:启动kuma\.cmd|kuma\.lnk|tsconfig\.json)$/, // .lnk 内嵌本机绝对路径，不能随包外发
-  // 仓库首页 README 是给**逛仓库的人**看的（下载、许可、连哪些地方），玩家产物里是噪音，
+  // 仓库 README 是**开发者**文档（构建、抓取、目录结构），玩家产物里是噪音，
   // 而且它会让人以为「说明书在 asar 里」。玩家那份是根目录的 使用说明.md
   //（extraResource 复制出来，双击就能开），见 package-win.mjs 的 BUNDLED_DOCS。
-  // 开发者文档在 docs/，由上面 docs/ 那条盖住。
   /^\/README(?:-[^/]*)?\.md$/,
   /^\/NVIDIA Corporation(?:\/|$)/, // 显卡驱动在工作目录里留的日志，不是项目的一部分
   // 外挂 sourcemap 不进产物。发行版构建（scripts/build.mjs --release）本来就不生成它，

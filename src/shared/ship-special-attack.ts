@@ -49,22 +49,31 @@ const equipIdIs =
   (equip) =>
     ids.includes(equip.mstId)
 
-const isHighAngleMount = iconIs(16) // 高角炮
+// 下面五个判据 aa-rocket-barrage 的加重对空也要用（喷进弹幕与对空CI 读的是同一批
+// 装备分类）。导出而不是让那边照抄一份：这种「机铳算 21 还是图标 15」的口径两处
+// 各写一遍，改了一边就出现两套加重对空，界面上还看不出是哪边错。
+export const isHighAngleMount = iconIs(16) // 高角炮
 const isRadar: EquipPredicate = (equip) => equip.type2 === 12 || equip.type2 === 13 // 小型/大型电探
 // 对空电探：靠「本体带对空值」把对水上电探排除掉，不另列名单
-const isAARadar: EquipPredicate = (equip) => isRadar(equip) && equip.antiAir > 0
+export const isAARadar: EquipPredicate = (equip) => isRadar(equip) && equip.antiAir > 0
 const isAdvancedAARadar: EquipPredicate = (equip) => isRadar(equip) && equip.antiAir >= 4
 // 内置高射装置的高角炮：按 wikia 口径「单件高角炮对空 ≥ 8」认定
 const isBuiltinHighAngleMount: EquipPredicate = (equip) =>
   isHighAngleMount(equip) && equip.antiAir >= 8
 const isLargeCaliberMainGun = type2Is(3) // 大口径主炮
 const isType3Shell = type2Is(18) // 三式弹
-const isAAFD = type2Is(36) // 高射装置
-const isAAGun = type2Is(21) // 对空机枪
+export const isAAFD = type2Is(36) // 高射装置
+export const isAAGun = type2Is(21) // 对空机枪
 const isCDMG: EquipPredicate = (equip) => isAAGun(equip) && equip.antiAir >= 9 // 集中配备机枪
 const isAAMG: EquipPredicate = (equip) => isAAGun(equip) && equip.antiAir >= 6
 
-const isRocketK2 = equipIdIs(274) // 12cm30連装噴進砲改二
+/**
+ * 12cm30連装噴進砲改二。名字↔id 三处一致（2026-08-30 核对）：随包 kcwiki 译名表
+ * equip 274 =「12cm30連装噴進砲改二」、poi `views/utils/combat/equip-predicates.ts`
+ * 的 `isRocketK2 = equipIdIs(274)`、wikiwiki 同名装备页「装備ID No.274」。
+ */
+export const ROCKET_LAUNCHER_K2_MST_ID = 274
+export const isRocketK2 = equipIdIs(ROCKET_LAUNCHER_K2_MST_ID) // 12cm30連装噴進砲改二
 const isHighAngleMountGun = equipIdIs(275) // 10cm連装高角砲改+増設機銃
 const is10cmTwinHAGunMountBase = equipIdIs(71) // 10cm連装高角砲(砲架)
 const is8cmHAMountKaiExtra = equipIdIs(220) // 8cm高角砲改+増設機銃
