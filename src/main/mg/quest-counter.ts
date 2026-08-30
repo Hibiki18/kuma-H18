@@ -46,6 +46,7 @@ import type {
   QpBlockReason,
   QpFleetCheck,
   QpFleetGoal,
+  QpPowerupCond,
   QpStateGoal,
   QpStateGoalDiff,
   QpStockGoal,
@@ -61,6 +62,10 @@ export interface QuestApiContext {
   // 动作前该舰队正在跑的远征 id。归约器处理 mission/result 时会把
   // deck.mission 清零，事后从 state 里读永远是 0，指定远征任务就全都不涨。
   expeditionMissionId?: number
+  // 近代化改修动作**前**，本次涉及的在籍 id → 图鉴 id。素材舰在归约里已经被
+  // removeRosterShips 删掉，事后按 api_id_items 去 player.ships 查一律扑空，
+  // 「用了 3 艘什么舰」就再也说不出来。
+  powerupShipIds?: Record<number, number>
 }
 
 // ---- 宿主接口 ----
@@ -683,6 +688,68 @@ export const createQuestEngine = (host: QuestEngineHost): QuestEngine => {
     return true
   }
 
+  /** 一次近代化改修的双方：目标舰的舰种/舰级，以及各素材舰的舰种。 */
+  interface PowerupParty {
+    target: { stype: number; ctype: number } | null
+    materialStypes: number[]
+    /** 判不出来的原因；非 null 时带 powerupCond 的任务一律不计 */
+    issue: string | null
+  }
+
+  /**
+   * 从请求参数还原这一次改修用了谁改谁。
+   *
+   * 参数名以本机账本实样为准（events 表 125 条 powerup，形状一致）：
+   * `api_id` = 目标舰在籍 id，`api_id_items` = 素材舰在籍 id 的逗号串。
+   *
+   * 在籍 id → 图鉴 id 先读动作前的快照（context.powerupShipIds），
+   * 读不到才回落到当前状态——目标舰归约后还在，素材舰已经不在了。
+   */
+  const powerupParty = (
+    post: Record<string, string>,
+    context: QuestApiContext,
+  ): PowerupParty => {
+    const snapshot = context.powerupShipIds ?? {}
+    const ships = store.getState().player.ships
+    const mstOf = (rosterId: number): number => snapshot[rosterId] ?? ships[rosterId]?.shipId ?? 0
+    const blank = (issue: string): PowerupParty => ({ target: null, materialStypes: [], issue })
+    const targetId = parseInt(`${post.api_id ?? ''}`, 10)
+    const materialIds = `${post.api_id_items ?? ''}`
+      .split(',')
+      .map((id) => parseInt(id, 10))
+      .filter((id) => id > 0)
+    if (!(targetId > 0)) return blank('请求里没有 api_id')
+    if (!materialIds.length) return blank('请求里没有 api_id_items')
+    const targetMst = mstOf(targetId)
+    if (!targetMst) return blank(`目标舰（在籍 ${targetId}）不在册`)
+    const materialStypes: number[] = []
+    for (const rosterId of materialIds) {
+      const mstId = mstOf(rosterId)
+      if (!mstId) return blank(`素材舰（在籍 ${rosterId}）不在册`)
+      materialStypes.push(master.stype.get(mstId) ?? 0)
+    }
+    return {
+      target: {
+        stype: master.stype.get(targetMst) ?? 0,
+        ctype: master.ctype.get(targetMst) ?? 0,
+      },
+      materialStypes,
+      issue: null,
+    }
+  }
+
+  const powerupCondOk = (cond: QpPowerupCond, party: PowerupParty | null): boolean => {
+    if (!party?.target || party.issue) return false
+    if (cond.targetStypes?.length && !cond.targetStypes.includes(party.target.stype)) return false
+    if (cond.targetCtypes?.length && !cond.targetCtypes.includes(party.target.ctype)) return false
+    // 素材数按**命中舰种的艘数**：正文要的是「同时使用 3 艘轻巡」，多带一艘别的不妨碍
+    const stypes = cond.materialStypes
+    const matched = stypes?.length
+      ? party.materialStypes.filter((stype) => stypes.includes(stype)).length
+      : party.materialStypes.length
+    return matched >= (cond.minMaterials ?? 1)
+  }
+
   const stockGoalCurrent = (
     goal: QpStockGoal,
     materialRefund: number[] = [],
@@ -904,21 +971,35 @@ export const createQuestEngine = (host: QuestEngineHost): QuestEngine => {
       // 两个增量都先算好，再逐条任务按自己的 perItem 取用，见 actionIncrement 的出处。
       const inc = actionIncrement(action, body, post)
       const incPerItem = actionIncrement(action, body, post, { perItem: true })
+      // 「对某某舰用 N 艘某某舰改修」那一族（Gy1-Gy4 / G10-G11）要看这一次的双方，
+      // 只有它们要，所以别的动作不去解析。
+      const party = action === 'powerup' ? powerupParty(post, context) : null
       const tracked = activeTracked()
       let hit = 0
+      let condMissed = 0
       for (const t of tracked) {
         t.tasks.forEach((task, i) => {
-          if (task.kind === 'action' && task.action === action) {
-            bump(t, i, task.perItem ? incPerItem : inc)
-            hit += 1
+          if (task.kind !== 'action' || task.action !== action) return
+          if (task.powerupCond && !powerupCondOk(task.powerupCond, party)) {
+            condMissed += 1
+            return
           }
+          bump(t, i, task.perItem ? incPerItem : inc)
+          hit += 1
         })
+      }
+      // 条件判不出来（舰不在册 / 请求缺参）与「这次用的舰不对」是两回事：
+      // 后者不涨是对的，前者是我们自己瞎了，必须说出断在哪一步。
+      if (party?.issue && condMissed) {
+        console.log(
+          `[kanso] qp: 近代化改修的双方判不出来，${condMissed} 条精确任务本次不计数（${party.issue}）`,
+        )
       }
       if (!hit) {
         // 计数没落到任何任务时说清原因，免得只能靠猜
         const known = Object.keys(store.getState().player.quests).length
         console.log(
-          `[kanso] qp: ${action} 事件未计入任何任务（遂行中且有追踪器 ${tracked.length} 条 · 已知任务 ${known} 条${known === 0 ? '——游戏里打开一次任务页即可同步' : ''}）`,
+          `[kanso] qp: ${action} 事件未计入任何任务（遂行中且有追踪器 ${tracked.length} 条 · 已知任务 ${known} 条${known === 0 ? '——游戏里打开一次任务页即可同步' : ''}${condMissed ? ` · 另有 ${condMissed} 条因改修条件不符未计` : ''}）`,
         )
       }
     }

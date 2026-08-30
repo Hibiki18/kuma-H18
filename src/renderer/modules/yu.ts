@@ -48,6 +48,11 @@ import {
   isSelfFetchLode,
   manualOnlyReason,
 } from '../../shared/lode-ids'
+import {
+  DEFAULT_GAME_URL,
+  GAME_URL_CONFIG_KEY,
+  isValidGameUrl,
+} from '../../shared/game-url'
 import { LAUNCH_GLOW_CONFIG_KEY, LAUNCH_GLOW_DEFAULT } from '../../shared/launch-glow'
 import { mapIntelCatalog } from '../../shared/map-intel'
 import { groupVoiceAbsentByMonth } from '../../shared/voice-probe-plan'
@@ -160,6 +165,11 @@ let loginHealth: {
   lastError: string | null
 } | null = null
 let backupMessage = ''
+/**
+ * 「重新载入游戏页面」按下去之后的回话。它值得留一句：设置浮层正盖着游戏区，
+ * 玩家按完看不见页面有没有动——不吭声就只能关掉浮层去猜。
+ */
+let gameUrlMessage: { tone: 'ok' | 'bad'; text: string } | null = null
 /**
  * 语音档案的占用。异步拉一次就缓存住：这张卡不该为了显示一行占用去发同步 IPC。
  * 缺省 null = 还没拉到，界面显示「统计中」而不是假装是 0。
@@ -1026,6 +1036,31 @@ const proxyCardHtml = (): string => {
     <div class="ynote">游戏与登录流量都走这个代理</div>`
 }
 
+/**
+ * 游戏页面网址。poi 同款：地址栏摆进设置，玩家自己填。
+ *
+ * 三件事写在形态里：
+ *  · **输入框里就是将要加载的那一条**，占位符是默认值——「填错了会怎样」不用读说明也看得见。
+ *  · **写坏了照样能开**。判据在 shared/game-url，装 webview 时回落默认；这里只把
+ *    「你填的这条用不上」如实说一声，不悄悄替他改掉输入框里的字（那样他会以为自己没保存上）。
+ *    「恢复默认」＝把这一格清空，与说明句「留空就用默认那条」是同一句话、同一种样子。
+ *  · **生效要按一下**。顶栏那个刷新按钮重取的是页面此刻停着的 URL，跟这一格无关，
+ *    所以自己带一个按钮（主进程侧 yu:reload-game-url 按配置重新导航）。
+ */
+const gameUrlCardHtml = (): string => {
+  const current: string = config.get(GAME_URL_CONFIG_KEY, DEFAULT_GAME_URL)
+  const raw = typeof current === 'string' ? current : ''
+  const unusable = raw.trim() !== '' && !isValidGameUrl(raw)
+  return `<div class="h"><b>游戏页面网址</b><span class="aux">改完按一下重新载入</span></div>
+    <div class="yline"><input class="yin wide" data-game-url value="${esc(raw)}"
+        placeholder="${esc(DEFAULT_GAME_URL)}">
+      <span class="ybtn" data-act="game-url-reset">恢复默认</span></div>
+    <div class="yline"><span class="ybtn" data-act="game-url-reload">重新载入游戏页面</span></div>
+    ${unusable ? '<div class="ystatus bad">这条不是 http / https 网址，游戏页仍按默认那条加载</div>' : ''}
+    ${gameUrlMessage ? `<div class="ystatus ${gameUrlMessage.tone}">${esc(gameUrlMessage.text)}</div>` : ''}
+    <div class="ynote">只认 http / https；留空就用默认那条</div>`
+}
+
 const loginCardHtml = (): string => {
   const healthText = loginHealth?.lastError
     ? `最近一次保存登录状态失败：${loginHealth.lastError}`
@@ -1060,6 +1095,12 @@ const cacheRepairCardHtml = (): string => `<div class="h"><b>缓存修复</b><sp
   <div class="ynote">清理游戏缓存后自动重启。
   保留登录 Cookie、配置、事件账本、同步记录、矿脉包、遭遇志与三份档案</div>
   <div class="yline"><span class="ybtn warn" data-act="clear-cache">清理缓存并重启</span></div>`
+
+// 魔改目录由主进程启动时建出来（kcs-resource 的 ensureModDir），这张卡只是把它打开——
+// 玩家不必自己新建、也不必去找 %APPDATA%。路径不写在卡上：它跟着缓存路径走，
+// 而按钮已经把人直接送到那儿了。
+const modDirCardHtml = (): string => `<div class="h"><b>魔改文件夹</b><span class="aux">立绘、语音等游戏素材的本地替换；文件按游戏资源路径摆放</span></div>
+  <div class="yline"><span class="ybtn" data-act="open-mod-dir">打开文件夹</span></div>`
 
 const voiceArchiveCardHtml = (): string => `<div class="h"><b>语音档案</b><span class="aux">在游戏里听过的语音会自己收进来</span></div>
   <div class="ynote">游戏播过的语音会转存一份到本机档案，图鉴台词页据此点亮。
@@ -1180,6 +1221,7 @@ const CARD_HTML: Record<SettingsCardId, () => string> = {
   retention: retentionCardHtml,
   backup: backupCardHtml,
   proxy: proxyCardHtml,
+  'game-url': gameUrlCardHtml,
   login: loginCardHtml,
   push: pushCardHtml,
   report: reportCardHtml,
@@ -1187,6 +1229,7 @@ const CARD_HTML: Record<SettingsCardId, () => string> = {
   'lode-packs': lodePacksCardHtml,
   'lode-license': lodeCreditCardHtml,
   'cache-repair': cacheRepairCardHtml,
+  'mod-dir': modDirCardHtml,
   diagnostics: diagnosticsCardHtml,
   about: aboutCardHtml,
 }
@@ -1352,6 +1395,16 @@ registerModule({
         render()
         return
       }
+      const gameUrlInput = (e.target as HTMLElement).closest<HTMLInputElement>('input[data-game-url]')
+      if (gameUrlInput) {
+        // 原样存他填的那一串（只去掉首尾空白）。**不在这里替他纠正**：
+        // 认不出的值由装 webview 那一侧回落到默认，界面另有一条红字说明用不上——
+        // 悄悄把输入框改回默认，他会以为自己压根没保存上，然后再填一遍。
+        config.set(GAME_URL_CONFIG_KEY, gameUrlInput.value.trim())
+        gameUrlMessage = null // 网址变了，上一次「已重新载入」不再作数
+        render()
+        return
+      }
       const input = (e.target as HTMLElement).closest<HTMLInputElement>('input[data-proxy-field]')
       if (!input) return
       const field = input.dataset.proxyField!
@@ -1427,6 +1480,41 @@ registerModule({
             if (error) alert(`打不开 NOTICE.md：${error}\n路径：${p}`)
           })
         })
+        return
+      }
+      if (act === 'game-url-reset') {
+        // 「恢复默认」就是**把这一格清空**，不是往框里填一遍默认网址。
+        // 两种写法效果一样，但填回去的话，「按按钮」与「自己把框删空」会留下两种
+        // 长得不一样的界面，而说明句只说了「留空就用默认那条」——对不上的那一种
+        // 会让人以为它们是两件事。
+        config.set(GAME_URL_CONFIG_KEY, '')
+        gameUrlMessage = null
+        render()
+        return
+      }
+      if (act === 'game-url-reload') {
+        void ipcRenderer
+          .invoke('yu:reload-game-url')
+          .then((result: { ok: boolean; url: string } | null) => {
+            // 找不到游戏页只有一种情况：webview 还没挂上来（刚启动、或刚崩过正在重挂）。
+            // 那时候它自己就会按新配置装一遍，所以这句是「等一下再按」而不是报错
+            gameUrlMessage = result?.ok
+              ? { tone: 'ok', text: `已按 ${result.url} 重新载入` }
+              : { tone: 'bad', text: '游戏页面还没就绪，等它出来再按一次' }
+            render()
+          })
+        return
+      }
+      if (act === 'open-mod-dir') {
+        // 目录由主进程那头保证存在（handler 里先 ensure 一次），这里只负责报失败：
+        // 开得起来就什么都不弹；开不起来时要是静静地什么也不发生，比弹一句原因更让人无从下手
+        void ipcRenderer
+          .invoke('yu:open-mod-dir')
+          .then((result: { ok: boolean; path: string; message: string } | null) => {
+            if (result && !result.ok) {
+              alert(`打不开魔改文件夹：${result.message || '未知原因'}\n路径：${result.path}`)
+            }
+          })
         return
       }
       if (act === 'clear-cache') {

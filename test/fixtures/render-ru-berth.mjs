@@ -105,7 +105,7 @@ ${FLEET_SHIPS}
 ${BERTH}
 ${TABS}
 
-export { berthViewHtml, berthHeaderHtml, fleetTabsHtml, BERTH_TAB_ID }
+export { berthViewHtml, berthHeaderHtml, fleetTabsHtml, BERTH_TAB_ID, REPAIR_FACILITY_MST_ID }
 `
 
 const bundle = (() => {
@@ -150,7 +150,8 @@ export const reset = ({ fleets = [], docked = [], sortie = null } = {}) => {
       const slot = []
       for (let i = 0; i < (ship.facilities ?? 0); i += 1) {
         const slotId = (slotSeq += 1)
-        loaded.mg.slotitems[slotId] = { mstId: 31 } // 艦艇修理施設
+        // 取真模块的常量，别写字面量：写死的那份跟着源码一起错过一次，护栏照样全绿
+        loaded.mg.slotitems[slotId] = { mstId: loaded.REPAIR_FACILITY_MST_ID }
         slot.push(slotId)
       }
       loaded.mg.ships[ship.id] = {

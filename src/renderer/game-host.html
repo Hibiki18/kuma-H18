@@ -90,7 +90,11 @@
     .lg-banner .copy span { color: #a9bac1; }
     .lg-banner .actions { display: flex; gap: 5px; }
     .lg-banner button { height: 26px; border: 1px solid #3b4c53; border-radius: 4px; background: #111a1e; color: #dce8ed; cursor: pointer; }
-    #lg-toasts { position: absolute; z-index: 11; right: 12px; bottom: 12px; width: min(330px, 44%); display: grid; gap: 7px; }
+    #lg-toasts { position: absolute; z-index: 11; width: min(250px, calc(100% - 24px)); display: grid; gap: 7px; }
+    #lg-toasts[data-corner$="l"] { left: 12px; }
+    #lg-toasts[data-corner$="r"] { right: 12px; }
+    #lg-toasts[data-corner^="b"] { bottom: 12px; }
+    #lg-toasts[data-corner^="t"] { top: 12px; }
     .lg-toast { position: relative; display: flex; gap: 8px; padding: 9px 30px 10px 10px; border: 1px solid #3a4850; background: rgba(12,18,22,.94); color: #dce8ed; box-shadow: 0 5px 20px rgba(0,0,0,.35); }
     .lg-toast.ok { border-color: #39785a; } .lg-toast.warn { border-color: #a37c32; } .lg-toast.danger { border-color: #a54c52; }
     .toast-body { min-width: 0; display: grid; gap: 3px; font-size: 11px; }

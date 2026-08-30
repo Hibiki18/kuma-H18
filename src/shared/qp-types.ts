@@ -28,10 +28,36 @@ export type QpTask = (
   // 工厂类动作：由任务库文本推导 → 一律标 ≈
   // perItem：这条任务按「件数」而不是「操作回数」计。现只对 destroyitem 有意义
   // （一括廃棄 n 件 = +n）；缺省不写 = 按操作回数，见 quest-counter-rules 的 actionIncrement。
-  | { kind: 'action'; action: QpAction; label: string; count: number; perItem?: true }
+  // powerupCond：近代化改修的精确条件，只对 action='powerup' 有意义；不写 = 老口径
+  // （任何一次成功改修都 +1）。
+  | {
+      kind: 'action'
+      action: QpAction
+      label: string
+      count: number
+      perItem?: true
+      powerupCond?: QpPowerupCond
+    }
 ) & {
   slot?: number // 多个候选 task 可共享一个计数槽，表达“任一命中”
   fleetGoal?: QpFleetGoal // 组合规则中，每条动作可保留自己的编成门
+}
+
+/**
+ * 近代化改修的一次操作要满足的条件（Gy1-Gy4 / G10-G11 这族）。
+ *
+ * 「对某某舰进行近代化改修，每次同时使用 N 艘某某舰」——目标舰与素材舰各一道门，
+ * 两道都过才算成功一次。素材舰按**命中舰种的艘数**数：正文要的是「同时使用 3 艘轻巡」，
+ * 多带一艘别的舰不妨碍，少一艘就不算。
+ *
+ * 舰种集合（api_stype）与舰级（api_ctype）分开写：「最上型」是舰级，
+ * 它的成员横跨重巡/航巡/轻空母/水母四个舰种，按舰种判一个都圈不住。
+ */
+export interface QpPowerupCond {
+  targetStypes?: number[]
+  targetCtypes?: number[]
+  materialStypes?: number[]
+  minMaterials?: number
 }
 
 export type QpAction =

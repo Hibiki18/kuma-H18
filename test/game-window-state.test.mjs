@@ -48,6 +48,7 @@ test('overlay DTO validation rejects oversized, malformed, and script-shaped pay
     }),
     {
       kind: 'toast', id: 'x', severity: 'ok', title: '任务完成 ×3', detail: '最新', locked: false,
+      corner: 'br',
       groupKey: 'quest', groupTitle: '任务完成', count: 3,
       action: { token: 'detail', label: '任务详情' },
       groupAction: { token: 'overview', label: '任务总览' },

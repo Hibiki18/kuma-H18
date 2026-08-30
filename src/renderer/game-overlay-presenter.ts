@@ -79,6 +79,7 @@ export const createGameOverlayPresenter = (
   }
 
   const showToast = (event: Extract<GameOverlayEvent, { kind: 'toast' }>) => {
+    toasts.dataset.corner = event.corner
     const group = event.groupKey
       ? toasts.querySelector<HTMLElement>(`[data-group="${CSS.escape(event.groupKey)}"]`)
       : null

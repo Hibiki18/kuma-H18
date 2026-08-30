@@ -67,6 +67,7 @@ await build({
     'game-window': path.join(root, 'src', 'renderer', 'game-window.ts'),
     'resource-trend': path.join(root, 'src', 'renderer', 'resource-trend-window.ts'),
     'quest-tree': path.join(root, 'src', 'renderer', 'quest-tree-window.ts'),
+    browse: path.join(root, 'src', 'renderer', 'browse-window.ts'),
   },
   outdir: rendererOut,
   bundle: true,
@@ -100,6 +101,7 @@ cpSync(
   path.join(root, 'src', 'renderer', 'quest-tree.html'),
   path.join(rendererOut, 'quest-tree.html'),
 )
+cpSync(path.join(root, 'src', 'renderer', 'browse.html'), path.join(rendererOut, 'browse.html'))
 rmSync(path.join(rendererOut, 'assets'), { recursive: true, force: true })
 cpSync(path.join(root, 'src', 'renderer', 'assets'), path.join(rendererOut, 'assets'), {
   recursive: true,

@@ -553,6 +553,9 @@ export const openResourceTrendWindow = (): Promise<void> =>
 export const openQuestTreeWindow = (questId?: number): Promise<void> =>
   ipcRenderer.invoke('window:quest-tree', questId ?? 0)
 
+// 浏览窗：每调用一次开新的一扇，不复用已经开着的那些
+export const openBrowseWindow = (): Promise<void> => ipcRenderer.invoke('window:browse')
+
 // 托盘：未读数与勿扰态由铃单向推过去，托盘只显示不判定
 export const pushTrayUnread = (count: number): Promise<void> =>
   ipcRenderer.invoke('tray:unread', count)

@@ -14,7 +14,7 @@ import type { BgmArchiveEntry } from '../shared/bgm-archive-plan'
 import { setVoiceHost } from './kcs-voice'
 import { installEquipIconFallback } from './equip-icon'
 import { installEntityArtFallback } from './entity-art'
-import { getUiZoom, initKernel, initUiZoom, mg, onUiZoom, setUiZoom } from './kernel'
+import { getUiZoom, initKernel, initUiZoom, mg, onUiZoom, openBrowseWindow, setUiZoom } from './kernel'
 import { initBgmPreview } from './bgm-preview'
 import { initPreviewBar } from './preview-bar'
 import { initLink } from './link'
@@ -90,6 +90,10 @@ const $ = <T extends HTMLElement>(selector: string): T => {
 // ---- 头部按钮 ----
 $('#btn-reload').addEventListener('click', () => {
   void executeGameCommand({ type: 'reload' })
+})
+// 浏览窗：按一次开一扇新的，各开各的、各关各的
+$('#btn-browse').addEventListener('click', () => {
+  void openBrowseWindow()
 })
 $('#btn-capture').addEventListener('click', () => {
   void executeGameCommand({ type: 'capture' })

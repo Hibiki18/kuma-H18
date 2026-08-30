@@ -480,6 +480,8 @@ import { isShipFamilyOwned } from '../ship-ownership'
 import type { EquipUpgradeRow, KcwikiShipRow } from '../../shared/equip-sources'
 import { devReferenceRecipe, factoryLookup, recipeText } from '../../shared/factory-lookup'
 import { routeOutlook } from '../../shared/route-outlook'
+import { resolveRouteTarget } from '../../shared/route-target'
+import type { RouteTargetView } from '../../shared/route-target'
 import type { BranchTally } from '../../shared/route-stats'
 import { abyssFamilyKey } from '../../shared/abyss-family'
 import { SANDBOX_DECK_ID, sandboxDeck, sandboxRosterIds } from '../sandbox-fleet'
@@ -622,7 +624,23 @@ const EMPTY_MAP_CHRONICLE: MapChronicleReport = {
   sortieCount: 0,
   edges: [],
   bossCells: [],
+  bossSeen: [],
   localDrops: { battles: 0, sWins: 0, sWinsWithoutDrop: 0, ships: [] },
+}
+// 路线预测的目标点，按图记（海域码 → 点位字母）。键用海域码而不是 mapId：
+// 下面那段裁剪靠的是插入序，而**数字型键在对象里恒按数值升序排**，先删后插
+// 挪不动它——那样裁掉的会是 1-1、1-2 这些编号最小的常规图，不是最久没碰的那批。
+const ROUTE_TARGET_KEY = 'ji.routeTarget'
+let routeTargets = uiGet<Record<string, string>>(ROUTE_TARGET_KEY, {})
+const setRouteTarget = (code: string, letter: string) => {
+  // 先删后插：碰过的键回到插入序末尾，容量裁剪才裁得掉真正最久没动的那批（同 du 的目标点）
+  delete routeTargets[code]
+  if (letter) routeTargets[code] = letter
+  const keys = Object.keys(routeTargets)
+  if (keys.length > 200) {
+    routeTargets = Object.fromEntries(keys.slice(-160).map((item) => [item, routeTargets[item]]))
+  }
+  uiSet(ROUTE_TARGET_KEY, routeTargets)
 }
 const mapChronicle = new Map<number, MapChronicleReport>()
 const mapChronicleLoaded = new Map<number, number>() // mapId → 手上这份对应的代
@@ -8445,26 +8463,43 @@ const routePassRange = (
   }
 }
 
+// 这张图的目标点。候选是整张海图的点位，默认取最近打过的那个 Boss——
+// 判据在 shared/route-target（纯函数，有测试）。
+const routeTargetOf = (info: any, code: string): RouteTargetView => {
+  const fcd = fcdMapLode?.data?.[code]
+  const route: Record<string, [string | null, string]> = fcd?.route ?? {}
+  const chronicle = mapChronicle.get(Number(info.api_id) || 0) ?? EMPTY_MAP_CHRONICLE
+  return resolveRouteTarget(
+    fcd?.spots ?? {},
+    chronicle.bossSeen,
+    (cell) => route[`${cell}`]?.[1] ?? null,
+    routeTargets[code] ?? null,
+  )
+}
+
 /**
  * 各队走向速览：把「这支队会走到哪儿」摊成一队一行，能并排比。
  *
  * 下面那张「可达路线」一次只答**一支**队（要切 tab），可玩家真正要做的
- * 判断是队与队之间的：哪支进得了 Boss、哪支会被带去绕路。原本这一步
+ * 判断是队与队之间的：哪支进得了目标点、哪支会被带去绕路。原本这一步
  * 得自己切着 tab 逐支看、心里记住再比——这里替他做完。
  *
  * 判别不是新写的：带路规则引擎（shared/routing-engine）与逐队上下文
  * （routingContextForDeck）本来就在，这里只是对每支队各跑一次再聚合。
  * 聚合口径在 shared/route-outlook，有行为测试。
  *
- * Boss 点位取**你自己的记录**（chronicle.bossCells）——游戏主数据不下发
- * 哪个点是 Boss，攻略包里也没有。没打到过就说不知道，不拿「路线终点」冒充。
+ * 走向按**玩家选定的目标点**算，不按「打过的 Boss」：多血条图上旧段 Boss
+ * 会一直占着目标位，而捞船的人本来就故意停在旧段 Boss。默认值仍取自你的
+ * 记录（最近打过的那个 Boss），一个都没有就说没选，不拿「路线终点」冒充。
  */
 const fleetOutlookHtml = (
   info: any,
   code: string,
   route: Record<string, [string | null, string]>,
-  bossLetters: Set<string>,
+  target: string | null,
 ): string => {
+  const targetLetters = target ? new Set([target]) : new Set<string>()
+  const targetLabel = target ? esc(target) : ''
   const phase = mg.mapGauges[info.api_id]?.gaugeNum ?? null
   const difficulty = routingDifficultyOf(info)
   const current = normalizedForecastDeckId()
@@ -8478,19 +8513,19 @@ const fleetOutlookHtml = (
         return `<div class="fo-lane${on}" data-map-forecast-deck="${scope.canonicalDeckId}">
           <b>${esc(label)}</b><span class="lane-none">没有舰娘</span></div>`
       }
-      const view = routeOutlook(plannedRoutes(code, route, deck.id, phase, difficulty), bossLetters)
+      const view = routeOutlook(plannedRoutes(code, route, deck.id, phase, difficulty), targetLetters)
       const bossCell = !view.boss
-        ? '<span class="lane-boss unknown">Boss 位置未知</span>'
+        ? '<span class="lane-boss unknown">未选目标点</span>'
         : view.boss.routes === 0
-          ? '<span class="lane-boss miss">绕开 Boss</span>'
+          ? `<span class="lane-boss miss">绕开 ${targetLabel}</span>`
           : view.boss.probability == null
-            ? `<span class="lane-boss maybe">可能进 Boss<i>${view.boss.routes}/${view.boss.total} 条</i></span>`
+            ? `<span class="lane-boss maybe">可能进 ${targetLabel}<i>${view.boss.routes}/${view.boss.total} 条</i></span>`
             : view.boss.probability >= 0.999
-              ? '<span class="lane-boss hit">必进 Boss</span>'
-              : `<span class="lane-boss hit">进 Boss ${Math.round(view.boss.probability * 100)}%</span>`
+              ? `<span class="lane-boss hit">必进 ${targetLabel}</span>`
+              : `<span class="lane-boss hit">进 ${targetLabel} ${Math.round(view.boss.probability * 100)}%</span>`
       const pathCell = view.best
         ? `<span class="lane-path">${view.best.nodes
-            .map((node) => `<b${bossLetters.has(node) ? ' class="boss"' : ''}>${esc(node)}</b>`)
+            .map((node) => `<b${node === target ? ' class="boss"' : ''}>${esc(node)}</b>`)
             .join('<i>→</i>')}</span>`
         : `<span class="lane-path none">分歧未决 · ${view.routes} 条可达路线</span>`
       const odds =
@@ -8505,9 +8540,9 @@ const fleetOutlookHtml = (
       </div>`
     })
     .join('')
-  const note = bossLetters.size
+  const note = target
     ? ''
-    : '<div class="q-foot">这张图还没打到过 Boss，所以不标 Boss 点</div>'
+    : '<div class="q-foot">还没打到过 Boss；从「目标点」里挑一个，走向就按它算</div>'
   return `<div class="map-model-title">各队走向<span class="aux">点一行切到那支队的详细预测</span></div>
     <div class="fo-lanes">${rows}</div>${note}`
 }
@@ -8537,9 +8572,31 @@ const mapForecastHtml = (
       <div class="map-forecast-tabs">${tabs}</div>
       <div class="q-foot">缺离线海域资料，连不出整条路线</div></div>`
   }
+  // Boss 点位只认自己的记录：主数据不下发哪个点是 Boss，攻略包里也没有。
+  // 它现在只用来给选项挂个「Boss」尾注，走向按玩家选的目标点算。
+  const bossLetters = new Set(
+    (mapChronicle.get(Number(info.api_id) || 0)?.bossCells ?? [])
+      .map((cell) => route[`${cell}`]?.[1])
+      .filter(Boolean) as string[],
+  )
+  const routeTarget = routeTargetOf(info, code)
+  const targetOptions = routeTarget.candidates
+    .map(
+      (letter) =>
+        `<option value="${esc(letter)}"${letter === routeTarget.target ? ' selected' : ''}>${esc(letter)}${
+          bossLetters.has(letter) ? ' · Boss' : ''
+        }</option>`,
+    )
+    .join('')
+  const targetPicker = `<label class="mf-target">目标点
+    <select data-map-route-target="${esc(code)}">${
+      routeTarget.target ? '' : '<option value="" selected>未选</option>'
+    }${targetOptions}</select>
+  </label>`
+  // 空舰队那一档也要能改目标点：切到一支没船的队时选择器不该跟着消失
   if (!friendly.ships.length) {
     return `<div class="sec map-forecast"><div class="sec-h">全图与路线预测<span class="aux">战斗机制估算</span></div>
-      <div class="map-forecast-tabs">${tabs}</div>
+      <div class="map-forecast-tabs">${tabs}${targetPicker}</div>
       <div class="q-foot">所选舰队没有舰娘，暂不能计算。</div></div>`
   }
   const paths = plannedRoutes(
@@ -8644,20 +8701,13 @@ const mapForecastHtml = (
   const fleetLine = context
     ? `${context.shipCount} 舰 · ${context.speed >= 20 ? '最速' : context.speed >= 15 ? '高速+' : context.speed >= 10 ? '高速' : '低速'} · 索敌33 ${Object.entries(context.los).map(([factor, value]) => `×${factor} ${value}`).join(' / ')}`
     : '舰队数据待同步'
-  // Boss 点位只认自己的记录：主数据不下发哪个点是 Boss，攻略包里也没有。
-  // 没打到过就不标，不拿「路线终点」冒充——那在有分支的图上会指错点。
-  const bossLetters = new Set(
-    (mapChronicle.get(Number(info.api_id) || 0)?.bossCells ?? [])
-      .map((cell) => route[`${cell}`]?.[1])
-      .filter(Boolean) as string[],
-  )
   return `<div class="sec map-forecast">
     <div class="sec-h">全图与路线预测<span class="aux" title="最终面板 · 等级/士气/补给 · 装备属性/★改修/熟练度/搭载 · 深海数值与装备">战斗机制估算 + 个人实测对照</span></div>
-    <div class="map-forecast-tabs">${tabs}<span>${esc(fleetLine)}</span></div>
+    <div class="map-forecast-tabs">${tabs}${targetPicker}<span>${esc(fleetLine)}</span></div>
     <div class="map-model-summary">
       <em>${esc(history)}${mapForecastState.loading ? ' <i class="stale">· 正在更新</i>' : ''}</em>
     </div>
-    ${fleetOutlookHtml(info, code, route, bossLetters)}
+    ${fleetOutlookHtml(info, code, route, routeTarget.target)}
     <div class="map-model-title">全图单点</div>
     <div class="map-model-nodes">${nodeRows || '<div class="q-foot">当前难度没有确认的敌编成，给不出估算数值。</div>'}</div>
     <div class="map-model-title">可达路线</div>
@@ -9011,6 +9061,9 @@ const mapGraphHtml = (info: any): string => {
   const bossLetters = new Set(
     chronicle.bossCells.map(letterOf).filter(Boolean) as string[],
   )
+  // 海图上的 Boss 圈说的是「你在这儿打过 Boss」这个历史事实，与预测的目标点
+  // 是两码事——目标点只多描一道亮圈，不改 Boss 圈的语义。
+  const targetLetter = routeTargetOf(info, code).target
   const edgeCount = new Map<string, number>()
   for (const edge of chronicle.edges) {
     const path = route[`${edge.cell}`]
@@ -9062,6 +9115,7 @@ const mapGraphHtml = (info: any): string => {
         isStart ? 'start' : '',
         isBoss ? 'boss' : '',
         battles ? 'fought' : '',
+        letter === targetLetter ? 'mg-target' : '',
         jump ? 'mg-jump' : '',
       ].filter(Boolean).join(' ')
       // 标签一律用真实点名：73/136 张图有 2~4 个起点（活动图的多出撃地点），
@@ -9085,6 +9139,7 @@ const mapGraphHtml = (info: any): string => {
       <span><i class="start"></i>出击起点</span>
       <span><i class="fought"></i>打过仗</span>
       <span><i class="boss"></i>Boss（据你的记录）</span>
+      <span><i class="mg-target"></i>目标点（走向预测按它算）</span>
     </div>
     <div class="q-foot">已走过 <b>${edgeCount.size}</b> / ${seen.size} 条边${chronicle.sortieCount ? ` · 出击 ${chronicle.sortieCount} 次` : ''}</div>
   </div>
@@ -12147,6 +12202,14 @@ const wire = () => {
       if (!mapForecastDecks().some((deck) => deck.id === deckId)) return
       mapState.fleetId = deckId
       mapForecastState.key = ''
+      render()
+    })
+  })
+  pane.querySelectorAll<HTMLSelectElement>('[data-map-route-target]').forEach((select) => {
+    select.addEventListener('change', () => {
+      const code = select.dataset.mapRouteTarget
+      if (!code) return
+      setRouteTarget(code, select.value)
       render()
     })
   })

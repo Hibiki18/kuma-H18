@@ -41,6 +41,17 @@ const S = 6
 const A = 5
 const B = 4
 
+// 近代化改修那一族（Gy1-Gy4 / G10-G11）正文里的舰种口径。数字是 api_stype，
+// 名字取自游戏 api_mst_stype：2 駆逐艦 / 3 軽巡洋艦 / 4 重雷装巡洋艦 /
+// 5 重巡洋艦 / 6 航空巡洋艦 / 21 練習巡洋艦。
+// 「軽巡」級 / 「重巡」級是**舰种集合**不是单一舰种，与 poi 的 quest_goal 同编码
+// （Gy3 的 materialShipType 就是 [3,4,21]，Gy4 是 [5,6]）。
+// Gy2 正文写的是「軽巡洋艦」而不是「軽巡」級，只算 3 一种——poi 那条也只写了 [3]。
+const DESTROYER = [2]
+const LIGHT_CRUISER_ONLY = [3]
+const LIGHT_CRUISER_CLASS = [3, 4, 21]
+const HEAVY_CRUISER_CLASS = [5, 6]
+
 const boss = (area: number, info: number, rank: number, count: number): QpTask => ({
   kind: 'bossKill',
   map: [area, info],
@@ -90,6 +101,8 @@ interface BuildHelpers {
   chain: (...rootNames: string[]) => number[]
   /** 指定国籍（ship-nationality id）的全部舰娘，可再按舰种过滤 */
   nationality: (natIds: number[], stypes?: number[]) => number[]
+  /** 精确日文名 → 该舰的舰级号（api_ctype）；名字解析不了或主数据没这一项都抛 MissingEntity */
+  ctype: (name: string) => number
   equip: (name: string) => number
   useitem: (name: string) => number
   /** 血条号/格子字母 → 入边号；表里没有或 poi-fcd 算不出都抛 MissingEntity */
@@ -98,13 +111,19 @@ interface BuildHelpers {
 
 class MissingEntity extends Error {}
 
+// 缺省 `ships` 必须是**空名单**而不是 `'any'`。
+// `'any'` 在 selectorMatches 里是「任意舰都算」的短路分支，写在最前面：
+// 一旦落上它，同一组里的 stypes/ctypes 根本不会被读到。于是
+// `group('正规空母', 2, { stypes: [11, 18] })` 这种只给舰种的写法就成了
+// 「任意 2 艘」——门看着在，其实全开（B152 等 10 条实测全开）。
+// 真要「任意舰」的那一条（B155 的「全队规模 ≤5」）自己显式写 ships: 'any'。
 const group = (
   label: string,
   amount: number,
   init: Partial<QpFleetGoalGroup>,
 ): QpFleetGoalGroup => ({
   label,
-  ships: 'any',
+  ships: [],
   stypes: [],
   amount,
   ...init,
@@ -612,6 +631,229 @@ const DRAFTS: RuleDraft[] = [
       },
     }),
   },
+  // ---- 演习 ----
+  //
+  // 演习的计数轴（评价 + 次数）由 quest-practice-rules 从中文正文推，推得准；缺的是另一半
+  // ——**编成门**。quest-fleet-rules 那一档只往松了裁：读不准的原子一律丢掉（依据见那个
+  // 文件头的「安全方向」），于是「旗舰是谁」「另一艘放 2 号位」「七艘里凑四艘」这类要求，
+  // 在下面这十条上或者整条没落地、或者落成了另一个形状——松的紧的都有。
+  //
+  // poi 的 quest_goal 把这些编得很全（escortship / escortshiptype / escortshipclass /
+  // flagship / flagshiptype / flagshipclass / secondship），但 decodePoiQuestGoal 的 bare()
+  // 只认 description/required/init，带这些字段的整条被拒——上游有货，进不来。
+  //
+  // 所以这十条在这里逐条人工解码。**每条的编成口径都拿游戏日文原文核过**（wikiwiki
+  // 「任務/演習任務」页的任務内容栏，2026-08-30 逐条抄回；318/Cm2 直接用本机账本
+  // questlist 的 api_detail，那是一手），再与中文 desc/memo2、poi 的编码三方互证。
+  // 三方不一致的按「只往松了裁」办，分歧写在那一条的注里（Cy3 有一处）。
+  {
+    // 日文原文（账本 api_detail）：伊良湖支援任務:軽巡二隻以上配備した第一艦隊で本日中に
+    // 演習で3回「勝利」、その後、第一艦隊旗艦に戦闘糧食を2つ装備せよ！
+    // 补的是「第一艦隊」这一维——自研推导只解舰种与数量，舰队号不在它的射程里；
+    // 拿第二舰队打演习游戏一次都不算，我们照计。
+    // 「勝利」没写评价字母 = B 判定以上（口径出处见 quest-practice-rules 文件头）。
+    // 战斗粮食那一半**不装成 stateGoal**：它写在「その後」，演习期间本来就不该拦人，
+    // 而 stateGoal 不满足会让钦的「当前编成可直接做」整个变空。partial 照旧。
+    questId: 318,
+    code: 'Cm2',
+    build: () => ({
+      partial: true,
+      tasks: [{ kind: 'exercise', rank: B, count: 3 }],
+      fleetGoal: { fleetId: 1, groups: [group('轻巡', 2, { stypes: [3] })] },
+    }),
+  },
+  {
+    // 日文原文：駆逐艦または海防艦計4隻(軽巡級1隻導入可能)を含む演習艦隊を編成、
+    // 同演習艦隊による演習で本日中に【A判定】以上の勝利を4回以上達成せよ！
+    // 自研推导把括号里的「可以加入」当允许丢掉了（那一步对），但剩下的「驱逐/海防4艘」
+    // 比游戏**严**：3 驱逐 + 1 轻巡级游戏算，我们拦。两条数量线合起来才是原文——
+    // 驱逐/海防 ≥3，且三者合计 ≥4。伞组是前一组的超集，标 overlapOk 不占去重名额，
+    // 否则 3+4=7 个名额塞不进 6 艘。poi 的 escortshiptype 编的就是这两条线。
+    // 「軽巡級1隻」这个上限不落地：那是给**凑数的那 4 艘**定的，不是全队上限，
+    // 按全队上限落会把 4 驱逐 + 2 轻巡（后两艘是自由舰）的合规编成拦下。
+    questId: 342,
+    code: 'Cq4',
+    build: () => ({
+      tasks: [{ kind: 'exercise', rank: A, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('驱逐舰/海防舰', 3, { stypes: [2, 1] }),
+          group('驱逐/海防/轻巡级', 4, { stypes: [2, 1, 3, 4, 21], overlapOk: true }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：「Warspite」「金剛」「Ark Royal」「Nelson」及びJ級駆逐艦から4隻以上含む
+    // 艦隊を編成！同ティータイム艦隊で、本日中に【A判定】以上の勝利を4回以上達成せよ！
+    // 自研推导整条弃门并标 ≈：正文的「四艘」跟在具名舰串后面，只落「驱逐舰4艘」会把
+    // 「七艘里凑四艘」读成「必须四艘驱逐舰」（见 quest-fleet-rules 的 unknownSpansOf）。
+    // 这里按原文并成一个组。J 級写**舰级**不写名单，因为原文写的就是「J級駆逐艦」，
+    // 将来这一级加人自动跟上；memo2 那句只列了 Jervis/Janus/Javelin 三个人。
+    questId: 345,
+    code: 'Cy1',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: A, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('Warspite/金刚/Ark Royal/Nelson/J级驱逐舰', 4, {
+            ships: h.chain('Warspite', '金剛', 'Ark Royal', 'Nelson'),
+            ctypes: [h.ctype('Jervis')],
+          }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：旗艦に軽巡級(雷巡を除く)、旗艦含む3隻以上の軽巡級と随伴駆逐艦2隻を
+    // 配備した軽巡演習艦隊を編成、同艦隊により本日中に演習で【A判定】以上の勝利を
+    // 4回以上達成せよ！
+    // 「雷巡を除く」原文只挂在**旗舰**那一维上，后半句「3隻以上の軽巡級」没有除外——
+    // 所以旗舰收紧到轻巡/练巡，凑数那 3 艘仍按最宽的「轻巡级」（含雷巡）算。
+    // 中文 memo2 与 poi 把 3 艘那一维也写成了不含雷巡（[3,21]），比原文严一格，
+    // 是「门比游戏严」的方向，不跟。
+    // 自研推导那一版旗舰门用的是含雷巡的全集：大井当旗舰它也放行。
+    questId: 348,
+    code: 'Cy3',
+    build: () => ({
+      tasks: [{ kind: 'exercise', rank: A, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('轻巡/练巡', 1, { stypes: [3, 21], flagship: true, overlapOk: true }),
+          group('轻巡级', 3, { stypes: [3, 4, 21] }),
+          group('驱逐舰', 2, { stypes: [2] }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：旗艦に「改装特務空母」、僚艦に「Fletcher級駆逐艦」または
+    // 「John C.Butler級護衛駆逐艦」計2隻以上を含む任務部隊を編成。同艦隊で、
+    // 本日中に【S判定】勝利を4回以上達成せよ！
+    // 「改装特務空母」是 Gambier Bay Mk.II 的艦種名，指的就是这一个形态（poi 与 memo2
+    // 都点了名），不是整条改造链——Gambier Bay 与改是護衛空母，不算。
+    // 僚舰按**舰级**判：原文写的是两个级名，不是四个人名。按 memo2 那句「四选二」的
+    // 名单落地会漏掉同为 Fletcher 級的 Richard P.Leary。
+    // 自研推导把旗舰与僚舰并成了一个组：旗舰门整个没了，Gambier Bay Mk.II 本人还能顶
+    // 一个僚舰名额，只带一艘 Fletcher 也算。
+    questId: 354,
+    code: 'Cy6',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: S, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('Gambier Bay Mk.II', 1, { ships: h.ships('Gambier Bay Mk.II'), flagship: true }),
+          group('Fletcher级/John C.Butler级', 2, {
+            ctypes: [h.ctype('Fletcher'), h.ctype('Samuel B.Roberts')],
+          }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：旗艦に「黒潮改二」または「親潮改二」、そのいずれかを二番艦とする
+    // 演習艦隊で、本日中に【S判定】勝利を4回以上達成せよ！
+    // 「二番艦」那一维自研推导一概不做（见 quest-fleet-rules 文件头），于是只剩旗舰门，
+    // 另一艘随便带都算。position 引擎本来就判得了，这一条正好是它装得下的形状：
+    // 1 号位与 2 号位各要这两艘里的一艘。
+    questId: 355,
+    code: 'Cy7',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: S, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('黑潮改二/亲潮改二', 1, {
+            ships: h.ships('黒潮改二', '親潮改二'),
+            flagship: true,
+          }),
+          group('另一艘（黑潮改二/亲潮改二）', 1, {
+            ships: h.ships('黒潮改二', '親潮改二'),
+            position: 2,
+          }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：「春雨」を旗艦として「村雨」「夕立」「五月雨」「白露」「時雨」のうち
+    // 3隻以上を含む演習艦隊を編成。同演習艦隊で本日中に演習【A判定】勝利4回以上を
+    // 達成せよ！
+    // 自研推导把春雨与那五艘并成一个组凑 3 艘并标 ≈：旗舰门没了，春雨本人还能顶名额，
+    // 于是只带村雨/夕立/五月雨也算。原文是两回事——春雨必须旗舰，另外五艘里再凑三艘。
+    questId: 371,
+    code: 'Cy12',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: A, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('春雨', 1, { ships: h.chain('春雨'), flagship: true }),
+          group('村雨/夕立/五月雨/白露/时雨', 3, {
+            ships: h.chain('村雨', '夕立', '五月雨', '白露', '時雨'),
+          }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：【艦隊防空演習】「秋月型」駆逐艦を旗艦として他に駆逐艦2隻、
+    // 航空戦艦2隻以上の艦隊を編成。同演習艦隊で本日中に演習【A判定】勝利4回以上を
+    // 達成せよ！
+    // 分水岭是「他に」：那 2 艘驱逐舰在秋月型旗舰**之外**。中文 desc 的「另外2艘驱逐舰」
+    // 与 memo2 的算式（旗舰 + 2 航战 + 2 驱逐 + 自由舰 = 6）同口径。
+    // 自研推导给秋月型那组标了 overlapOk，秋月本人顶掉一个驱逐名额，只带 1 艘僚驱也算。
+    questId: 372,
+    code: 'Cy13',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: A, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('秋月型', 1, { ctypes: [h.ctype('秋月')], flagship: true }),
+          group('驱逐舰', 2, { stypes: [2] }),
+          group('航空战舰', 2, { stypes: [10] }),
+        ],
+      },
+    }),
+  },
+  {
+    // 日文原文：【フランス艦隊演習】フランス生まれの艦艇を旗艦に配備。同旗艦を含む
+    // フランス艦艇3隻以上を配備した演習艦隊を編成。同艦隊で本日中に演習【A判定】
+    // 勝利4回以上を達成せよ！Merci♪
+    // 自研推导认出了「法国船 3 艘」，旗舰那一维没认出来——三艘法国舰随便摆哪都算。
+    // 「同旗艦を含む」= 旗舰算在 3 艘里，所以是同一个组加一道旗舰门，不另起一组。
+    questId: 373,
+    code: 'Cy14',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: A, count: 4 }],
+      fleetGoal: {
+        groups: [group('法国舰娘', 3, { ships: h.nationality([6]), flagship: true })],
+      },
+    }),
+  },
+  {
+    // 日文原文：【後期二駆演習】「早霜」「秋霜」「清霜」の1隻を旗艦、僚艦に「早霜」
+    // 「秋霜」「清霜」「朝霜」2隻を含む後期編成の夕雲型第二駆逐隊を含む艦隊で、
+    // 本日中に演習【S判定】勝利4回以上を達成せよ！
+    // 「旗舰从三艘里挑一个、僚舰再从四艘里挑两个」是两级嵌套的几选几，自研推导整条弃门
+    // 并标 ≈。拆成「旗舰子集一道门 + 全集凑 3 艘一道门」两组就装得下：旗舰那组标
+    // overlapOk——旗舰本人算在这 3 艘里，不另占名额。
+    questId: 377,
+    code: 'Cy16',
+    build: (h) => ({
+      tasks: [{ kind: 'exercise', rank: S, count: 4 }],
+      fleetGoal: {
+        groups: [
+          group('早霜/秋霜/清霜', 1, {
+            ships: h.chain('早霜', '秋霜', '清霜'),
+            flagship: true,
+            overlapOk: true,
+          }),
+          group('早霜/秋霜/清霜/朝霜', 3, {
+            ships: h.chain('早霜', '秋霜', '清霜', '朝霜'),
+          }),
+        ],
+      },
+    }),
+  },
   // ---- 工厂 / 装备 ----
   {
     // memo：Ark Royal 秘书舰，一号格 ★max Swordfish；废弃 Swordfish×1、Fulmar×2；
@@ -659,15 +901,123 @@ const DRAFTS: RuleDraft[] = [
       ],
     }),
   },
+  // 近代化改修族（Gy1-Gy4 / G10-G11）。六条的骨架一样：备资源 + 对某某舰用 N 艘
+  // 某某舰改修成功 2 次。计数条件由 powerupCond 逐次校验（目标舰种/舰级 + 素材舰种
+  // 与艘数），所以不再标 ≈；资源那一半走 stockGoals，两半合起来就是整条任务，
+  // 也不 partial。
+  //
+  // 上游为什么都不管：poi 的 quest_goal 给 714-717 写了 materialShipType /
+  // materialShipMinCount，decodePoiQuestGoal 的 bare() 只认 description/required/init，
+  // 整条被拒；718/719 poi 根本没有。于是这四条一路掉到中文正文兜底，而正文里
+  // 「成功2次」与「近代化改修」不在同一小句、够不着取数窗口 → 全都算成 count 1。
+  // **玩家看见的「1 次就满」就是这么来的**（2026-08-30 反馈：Gy1 实际要操作两次）。
   {
-    // memo：对最上型用 3 轻巡系素材近代化改修成功 2 次；备钢/弹 1100。
-    // 素材舰种与对象舰在动作事件里未校验 → 标 ≈ 且 partial
+    // memo：备钢 600、铝 300；对任意驱逐舰，每次同时用 3 艘驱逐舰改修成功 2 次
+    questId: 714,
+    code: 'Gy1',
+    build: () => ({
+      tasks: [{
+        kind: 'action',
+        action: 'powerup',
+        label: '近代化改修（驱逐舰 · 素材驱逐舰 ×3）',
+        count: 2,
+        powerupCond: {
+          targetStypes: DESTROYER,
+          materialStypes: DESTROYER,
+          minMaterials: 3,
+        },
+      }],
+      stockGoals: [
+        { kind: 'material', id: 2, label: '钢材', count: 600 },
+        { kind: 'material', id: 3, label: '铝土', count: 300 },
+      ],
+    }),
+  },
+  {
+    // memo：备钢 900、铝 500；对任意驱逐舰，每次同时用 3 艘**軽巡洋艦**改修成功 2 次。
+    // 这条正文写的不是「軽巡」級，雷巡/练巡不算——poi 那条也只写了 [3]
+    questId: 715,
+    code: 'Gy2',
+    build: () => ({
+      tasks: [{
+        kind: 'action',
+        action: 'powerup',
+        label: '近代化改修（驱逐舰 · 素材轻巡洋舰 ×3）',
+        count: 2,
+        powerupCond: {
+          targetStypes: DESTROYER,
+          materialStypes: LIGHT_CRUISER_ONLY,
+          minMaterials: 3,
+        },
+      }],
+      stockGoals: [
+        { kind: 'material', id: 2, label: '钢材', count: 900 },
+        { kind: 'material', id: 3, label: '铝土', count: 500 },
+      ],
+    }),
+  },
+  {
+    // memo：备钢 800、铝 400；对任意「軽巡」級，每次同时用 3 艘「軽巡」級改修成功 2 次
+    questId: 716,
+    code: 'Gy3',
+    build: () => ({
+      tasks: [{
+        kind: 'action',
+        action: 'powerup',
+        label: '近代化改修（轻巡级 · 素材轻巡级 ×3）',
+        count: 2,
+        powerupCond: {
+          targetStypes: LIGHT_CRUISER_CLASS,
+          materialStypes: LIGHT_CRUISER_CLASS,
+          minMaterials: 3,
+        },
+      }],
+      stockGoals: [
+        { kind: 'material', id: 2, label: '钢材', count: 800 },
+        { kind: 'material', id: 3, label: '铝土', count: 400 },
+      ],
+    }),
+  },
+  {
+    // memo：备钢 900、弹 900；对任意「軽巡」級，每次同时用 3 艘「重巡」級改修成功 2 次
+    questId: 717,
+    code: 'Gy4',
+    build: () => ({
+      tasks: [{
+        kind: 'action',
+        action: 'powerup',
+        label: '近代化改修（轻巡级 · 素材重巡级 ×3）',
+        count: 2,
+        powerupCond: {
+          targetStypes: LIGHT_CRUISER_CLASS,
+          materialStypes: HEAVY_CRUISER_CLASS,
+          minMaterials: 3,
+        },
+      }],
+      stockGoals: [
+        { kind: 'material', id: 2, label: '钢材', count: 900 },
+        { kind: 'material', id: 1, label: '弹药', count: 900 },
+      ],
+    }),
+  },
+  {
+    // memo：备钢/弹 1100；对最上型，每次同时用 3 艘「軽巡」級改修成功 2 次。
+    // 最上型按**舰级**判：这一级横跨重巡/航巡/軽空母/水母四个舰种（最上改二特是水母、
+    // 鈴谷航改二是軽空母），按舰种判一个都圈不住。舰级号从主数据现查，不写死
     questId: 718,
     code: 'G10',
-    build: () => ({
-      approx: true,
-      partial: true,
-      tasks: [{ kind: 'action', action: 'powerup', label: '近代化改修（最上型）', count: 2 }],
+    build: (h) => ({
+      tasks: [{
+        kind: 'action',
+        action: 'powerup',
+        label: '近代化改修（最上型 · 素材轻巡级 ×3）',
+        count: 2,
+        powerupCond: {
+          targetCtypes: [h.ctype('最上')],
+          materialStypes: LIGHT_CRUISER_CLASS,
+          minMaterials: 3,
+        },
+      }],
       stockGoals: [
         { kind: 'material', id: 2, label: '钢材', count: 1100 },
         { kind: 'material', id: 1, label: '弹药', count: 1100 },
@@ -675,12 +1025,22 @@ const DRAFTS: RuleDraft[] = [
     }),
   },
   {
+    // memo：备钢/弹 1200；对最上型，每次同时用**4 艘**「重巡」級改修成功 2 次。
+    // 素材是 4 艘不是 3 艘——正文与 wikiwiki 改装任務页同口径（要改修用「重巡」級 8 隻）
     questId: 719,
     code: 'G11',
-    build: () => ({
-      approx: true,
-      partial: true,
-      tasks: [{ kind: 'action', action: 'powerup', label: '近代化改修（最上型）', count: 2 }],
+    build: (h) => ({
+      tasks: [{
+        kind: 'action',
+        action: 'powerup',
+        label: '近代化改修（最上型 · 素材重巡级 ×4）',
+        count: 2,
+        powerupCond: {
+          targetCtypes: [h.ctype('最上')],
+          materialStypes: HEAVY_CRUISER_CLASS,
+          minMaterials: 4,
+        },
+      }],
       stockGoals: [
         { kind: 'material', id: 2, label: '钢材', count: 1200 },
         { kind: 'material', id: 1, label: '弹药', count: 1200 },
@@ -862,7 +1222,9 @@ const DRAFTS: RuleDraft[] = [
       tasks: [],
       partial: true,
       stateGoal: {
-        secretary: { label: '潜水舰/潜水空母', ships: 'any', stypes: [13, 14] },
+        // 同 group() 的缺省：evaluateStateGoal 里 ships === 'any' 也是短路分支，
+        // 写 'any' 会让后面的 stypes 读不到，秘书舰门变成「谁当都行」
+        secretary: { label: '潜水舰/潜水空母', ships: [], stypes: [13, 14] },
         equipment: [
           {
             label: '后期型舰首鱼雷(6门)（★max·第1格）',
@@ -1057,11 +1419,13 @@ export const buildKansoQuestRules = (
   const nameToId = new Map<string, number>()
   const natOf = new Map<number, number>()
   const stypeOf = new Map<number, number>()
+  const ctypeOf = new Map<number, number>()
   for (const ship of friendly) {
     const id = Number(ship.api_id)
     nameToId.set(`${ship.api_name}`, id)
     natOf.set(id, shipNationalityIdFromSortId(ship.api_sort_id))
     stypeOf.set(id, Number(ship.api_stype) || 0)
+    ctypeOf.set(id, Number(ship.api_ctype) || 0)
   }
   const chains = buildShipRemodelChains(
     friendly.map((ship) => ({
@@ -1100,6 +1464,11 @@ export const buildKansoQuestRules = (
       }
       if (!out.length) throw new MissingEntity(`国籍 ${natIds.join('/')}`)
       return out
+    },
+    ctype: (name) => {
+      const id = ctypeOf.get(one(name)) ?? 0
+      if (!id) throw new MissingEntity(`舰娘「${name}」的舰级`)
+      return id
     },
     equip: (name) => {
       const id = context.equipIdsByName.get(name)

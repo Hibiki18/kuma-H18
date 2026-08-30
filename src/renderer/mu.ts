@@ -228,13 +228,14 @@ const layoutDock = (dock: DockId) => {
     if (!mods.includes(g.active ?? '')) g.active = mods[0]
     const groupEl = document.createElement('div')
     groupEl.className = 'dock-group'
-    if (mods.length === 1 && (mods[0] === 'zi' || mods[0] === 'ru' || mods[0] === 'ji')) {
-      groupEl.classList.add('tabless')
-    }
     groupEl.dataset.gi = `${gi}`
     if (shownIndex < visibleGroups.length - 1 && g.size) groupEl.style.flex = `0 0 ${g.size}px`
     else groupEl.style.flex = '1 1 0'
 
+    // 标签条每一格都摆，独占一格的也摆（2026-08-30 产品拍板）。右键标签出「移动到」
+    // 是换坞换格唯一的入口，藏掉标签那一格就再也挪不动：玩家得先把两个模块凑进同一格
+    // 才看得见标签，而凑模块本身就得用这个菜单。原先资源/编队/图鉴独占时省掉标签栏，
+    // 省下的那点高度换不来这个死循环（玩家反馈「编队能不能挪到侧面」的根因）。
     const tabs = document.createElement('div')
     tabs.className = 'dock-tabs'
     const panes = document.createElement('div')
@@ -665,8 +666,14 @@ const buildRail = () => {
           showDockMenu(mod.id, e.clientX, e.clientY)
         })
       }
+    } else if (system) {
+      // 「布局」这一格没有面板（铆自己就是装配宿主），所以换坞换格的操作说明只能挂在它的悬停上。
+      tile.title =
+        navId === 'mu'
+          ? `${name} · 系统内核 · 运行中\n面板标签或模块名上右键 →「移动到」，换坞、换格或新建一格`
+          : `${name} · 系统内核 · 运行中`
     } else {
-      tile.title = system ? `${name} · 系统内核 · 运行中` : `${name} · 未装配`
+      tile.title = `${name} · 未装配`
     }
     railEl.appendChild(tile)
   }
@@ -686,10 +693,22 @@ export const setLayoutDragHooks = (hooks: DragHooks) => {
 
 // 通用拖拽循环：apply(客户坐标) 负责改尺寸
 const beginDrag = (cursor: string, apply: (x: number, y: number) => void, onDone: () => void) => {
-  const overlay = document.createElement('div')
-  overlay.id = 'drag-overlay'
-  overlay.style.cursor = cursor
-  document.body.append(overlay)
+  // 遮罩推迟到**第一次 mousemove** 才铺（2026-08-30 修）。从前一按下就铺满全屏，
+  // 于是 mouseup 落在遮罩上而不是分隔条上，浏览器再也合成不出 click/dblclick——
+  // wireDockSplitter 那行「双击折叠」的监听器从来没被调用过，三条分隔条 title 里
+  // 写着的「双击折叠」是句空话。实测两组对照：铺了遮罩这组连 click 都没有；
+  // 只摘掉遮罩、其余不动那组 click detail=1/2 与 dblclick 依次到齐。
+  // 按下不动＝纯点击，遮罩不铺，双击照常合成；只要真动了就在那一拍立刻铺上，
+  // 拖拽期挡 webview 吞鼠标事件的语义分毫不变（apply 改尺寸在 rAF 里，
+  // 排在铺遮罩之后，`body:has(#drag-overlay) .dock { transition: none }` 照旧命中）。
+  let overlay: HTMLElement | null = null
+  const ensureOverlay = () => {
+    if (overlay) return
+    overlay = document.createElement('div')
+    overlay.id = 'drag-overlay'
+    overlay.style.cursor = cursor
+    document.body.append(overlay)
+  }
   dragHooks.start?.()
   let raf = 0
   let last = { x: 0, y: 0 }
@@ -699,6 +718,7 @@ const beginDrag = (cursor: string, apply: (x: number, y: number) => void, onDone
     dragHooks.move?.()
   }
   const onMove = (e: MouseEvent) => {
+    ensureOverlay()
     last = { x: e.clientX, y: e.clientY }
     if (!raf) raf = requestAnimationFrame(tick)
   }
@@ -706,7 +726,7 @@ const beginDrag = (cursor: string, apply: (x: number, y: number) => void, onDone
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
     if (raf) cancelAnimationFrame(raf)
-    overlay.remove()
+    overlay?.remove()
     if (last.x || last.y) apply(last.x, last.y)
     dragHooks.end?.()
     onDone()

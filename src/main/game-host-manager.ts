@@ -17,6 +17,8 @@ import { ROOT } from './env'
 import { setKcsResourceGameWebContentsId } from './kcs-resource'
 import { handleNewWindow, handleWebviewPreloadHack, stopFileNavigate } from './webcontent-utils'
 import broadcaster = require('./game-api-broadcaster')
+import { GAME_URL_CONFIG_KEY, normalizeGameUrl } from '../shared/game-url'
+import { cleanUserAgent } from '../shared/user-agent'
 import {
   cssRectToViewBounds,
   isGameCommand,
@@ -360,7 +362,8 @@ export class GameHostManager {
           path.resolve(preload).toLowerCase() === path.resolve(trustedWebviewPreload).toLowerCase()
       } catch {}
       try {
-        sourceMatches = new URL(params.src).href === new URL(String(config.get('kanso.homepage'))).href
+        sourceMatches =
+          new URL(params.src).href === new URL(normalizeGameUrl(config.get(GAME_URL_CONFIG_KEY))).href
       } catch {}
       if ((current && !current.isCrashed()) || !preloadMatches || !sourceMatches) {
         event.preventDefault()
@@ -593,11 +596,9 @@ export class GameHostManager {
     ipcMain.handle('game-host:get-bootstrap', (event) => {
       if (!this.isHost(event)) return null
       return {
-        homepage: String(config.get('kanso.homepage')),
+        homepage: normalizeGameUrl(config.get(GAME_URL_CONFIG_KEY)),
         preload: pathToFileURL(path.join(ROOT, 'assets', 'preload', 'webview-preload.js')).href,
-        userAgent: this.mainWindow.webContents.userAgent
-          .replace(/Electron[^ ]* /, '')
-          .replace(/kanso[^ ]* /, ''),
+        userAgent: cleanUserAgent(this.mainWindow.webContents.userAgent),
       }
     })
     ipcMain.on('game-host:ready', (event) => {

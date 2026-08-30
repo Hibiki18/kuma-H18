@@ -138,7 +138,10 @@ test('第三方零请求：会被拿去 fetch 的绝对地址，主机只能是�
   // 源码里剩下的那几处只是输入框示例与报错示例文本，玩家不亲手填就没有目标。
   const ALLOWED_HOSTS = new Map([
     ['play.games.dmm.com', '游戏本体主页（webview src 默认值）'],
-    ['games.dmm.com', '只做 location.href 比较，不导航过去'],
+    // 2026-08-30 起多了一层身份：浏览窗的主页就是它（games.dmm.com/detail/kancolle）。
+    // 那不是产物自己发的请求——玩家按了顶栏「新窗」才会有一扇窗去加载它，
+    // 之后去哪也全由他在地址栏里定。page-align.js 那一处仍然只做 location.href 比较。
+    ['games.dmm.com', '浏览窗主页（玩家按「新窗」才开）· page-align 那处只做比较不导航'],
     ['ntfy.sh', '手机推送的输入框示例与报错示例文本 · 不是预置目标 · 玩家不亲手填就一条请求都不发'],
     ['api.day.app', 'Bark 地址的输入占位与报错示例文本，不是请求目标'],
     ['zh.kcwiki.cn', '资料出处外链 · shell.openExternal 交系统浏览器'],

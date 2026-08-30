@@ -1,3 +1,5 @@
+import { TOAST_CORNERS, type ToastCorner } from './toast-position'
+
 export type GameWindowMode = 'embedded' | 'detached'
 
 export type GameHostPhase =
@@ -89,6 +91,7 @@ export type GameOverlayEvent =
       title: string
       detail: string
       locked: boolean
+      corner: ToastCorner
       groupKey?: string
       groupTitle?: string
       count?: number
@@ -277,6 +280,9 @@ export const normalizeOverlayEvent = (value: unknown): GameOverlayEvent | null =
     if (event.groupTitle != null && !textWithin(event.groupTitle, 160)) return null
     const count = event.count == null ? undefined : Number(event.count)
     if (count != null && (!Number.isInteger(count) || count < 1 || count > 999)) return null
+    const corner = TOAST_CORNERS.includes(event.corner as ToastCorner)
+      ? (event.corner as ToastCorner)
+      : 'br'
     return {
       kind: 'toast',
       id: event.id,
@@ -284,6 +290,7 @@ export const normalizeOverlayEvent = (value: unknown): GameOverlayEvent | null =
       title: event.title,
       detail: event.detail,
       locked: event.locked,
+      corner,
       groupKey: textWithin(event.groupKey, 100) ? event.groupKey : undefined,
       groupTitle: textWithin(event.groupTitle, 160) ? event.groupTitle : undefined,
       count,

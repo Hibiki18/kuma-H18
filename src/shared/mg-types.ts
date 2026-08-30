@@ -1070,6 +1070,11 @@ export interface MapChronicleReport {
   sortieCount: number
   edges: { cell: number; count: number }[] // cell = 罗盘 api_no
   bossCells: number[] // 仅按本机实际遭遇到的 Boss 点认定
+  /**
+   * 同一批 Boss 点，各带最近一次遭遇的时间。多血条活动图有好几个 Boss 点，
+   * 「默认目标点」要挑最近打过的那个——只有点号排不出先后。
+   */
+  bossSeen: { cell: number; lastTs: number }[]
   /** 整图的本机确认掉落层（与「实际掉落」那份按点分的不同：这一份带 S 胜口径与首末次） */
   localDrops: LocalDropScope
 }

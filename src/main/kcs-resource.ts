@@ -5,7 +5,7 @@
 // 不被污染（截图可用）。script 只接受显式 .hack.* 覆盖——游戏脚本带版本号，
 // gadget 登录还有 script RPC，供上陈旧缓存会直接炸登录（原版血泪注释保留）。
 import { net, protocol, session } from 'electron'
-import { constants, promises as fsp } from 'fs'
+import { constants, mkdirSync, promises as fsp } from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 
@@ -25,9 +25,10 @@ import { createVoiceRequestGate, resourceVersionOf } from '../shared/voice-reque
 const kcsResourcePath: {
   isStaticResource: (pathname?: string) => boolean
   getCacheCandidatePaths: (cacheDir: string, pathname?: string) => [string, string]
+  getModRootPath: (cacheDir: string) => string
 } = require(path.join(ROOT, 'assets', 'preload', 'kcs-resource-path'))
 
-const { isStaticResource, getCacheCandidatePaths } = kcsResourcePath
+const { isStaticResource, getCacheCandidatePaths, getModRootPath } = kcsResourcePath
 
 const SCHEME = 'kanso-cache'
 let gameWebContentsId: number | null = null
@@ -75,6 +76,28 @@ const HACKABLE_RESOURCE_TYPES = new Set(['stylesheet', 'media', 'font', 'script'
 const OVERRIDE_ONLY_RESOURCE_TYPES = new Set(['script'])
 
 const getCacheDir = (): string => config.get('kanso.cache.path', DEFAULT_CACHE_PATH)
+
+/**
+ * 魔改目录：`<缓存目录>\KanColle`。缓存路径在配置里改过就跟着走，**不写死默认值**。
+ */
+export const modDirPath = (): string => getModRootPath(getCacheDir())
+
+/**
+ * 幂等把魔改目录建出来。玩家只要把文件丢进去就行——不必自己新建，也不必找 %APPDATA%。
+ *
+ * **建不出来不影响启动**（只读盘、权限不足、路径被占）：魔改本来就是可选的，
+ * 查找器那边「目录空/读不动」都算没人魔改，整段会话直接走快路径。
+ * 返回值是路径本身，调用方（设置页的「打开文件夹」）拿它去开。
+ */
+export const ensureModDir = (): string => {
+  const dir = modDirPath()
+  try {
+    mkdirSync(dir, { recursive: true })
+  } catch (e) {
+    console.warn('[kanso] kcs-resource: 魔改目录建不出来', dir, e)
+  }
+  return dir
+}
 
 const findHackFilePathAsync = async (
   cacheDir: string,

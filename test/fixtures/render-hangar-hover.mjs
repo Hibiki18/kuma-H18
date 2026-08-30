@@ -50,8 +50,16 @@ const EQUIP_CHIPS = cut(
 const SLOT_PICKER = cut(
   jiLab,
   'const slotPickerHtml = () => {',
-  '\n// ---- 两份 datalist',
+  '\n// ---- 两份候选',
   '鉴的实验室装备格 slotPickerHtml',
+)
+// 改修星那几个小工具也切真的：slotPickerHtml 要用 starAt/MAX_STAR，桩一个
+// 「返回 0」等于把「空格不出 ★ 选择器」这条也从切片里抹掉。
+const STARS = cut(
+  jiLab,
+  'const MAX_STAR = 10',
+  '\nconst shipOf =',
+  '实验室的改修星工具 MAX_STAR/clampStar/starAt',
 )
 
 const HARNESS = `
@@ -74,8 +82,11 @@ const equipPeekIconHtml = (_mstId: number, iconId: number, name: string, o: any 
 
 ${EQUIP_CHIPS}
 
-// 实验室那一段：选中哪一艘、虚拟槽里放了什么，都是模块级状态
-export const state: any = { rosterId: 0, slots: [], flagship: true }
+// 实验室那一段：选中哪一艘、虚拟槽里放了什么、各格几颗星，都是模块级状态
+export const state: any = { rosterId: 0, slots: [], stars: [], flagship: true }
+
+${STARS}
+
 const shipOf = (rosterId: number) => mg.ships[rosterId]
 const masterShipOf = (mstId: number) => mg.master.ships[mstId]
 const equipDisplayName = (mstId: number) => \`装备#\${mstId}\`
@@ -124,6 +135,7 @@ export const reset = (ship, maxEq) => {
   loaded.mg.master.ships[mstId] = { maxEq, slotNum: maxEq.filter((n) => n > 0).length }
   loaded.state.rosterId = rosterId
   loaded.state.slots = (slot ?? maxEq.map(() => 0)).slice()
+  loaded.state.stars = loaded.state.slots.map(() => 0)
 }
 
 const mgReset = () => {

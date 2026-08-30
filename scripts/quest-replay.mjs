@@ -197,6 +197,28 @@ try {
       expeditionDeckId > 0
         ? store.getState().player.decks.find((deck) => deck.id === expeditionDeckId)?.mission?.[1] ?? 0
         : 0
+    // 近代化改修同理：素材舰被 removeRosterShips 当场删掉，改修的素材舰种条件
+    // （Gy1-Gy4 / G10-G11）只认动作前这份 在籍 id → 图鉴 id。
+    //
+    // ⚠ 但回放**验不了**这一族：全量在籍表只在 api_port/port 与 ship3 里下发，
+    // 而这两条路的 body 不入账本（见下面 `row.body == null` 那道 continue），
+    // 回放期的在籍表只有 ship_deck 补出来的那一小撮（实测 124 / 真机四百余艘）。
+    // 素材舰多半查不到 → 带条件的那几条一律落进「漏计（软信号）」，不是误涨。
+    // 线上没有这个问题：每次回港整份在籍表都会重下发。
+    const powerupShipIds =
+      apiPath === '/kcsapi/api_req_kaisou/powerup'
+        ? (() => {
+            const ships = store.getState().player.ships
+            const out = {}
+            for (const id of [
+              Number(post.api_id),
+              ...`${post.api_id_items ?? ''}`.split(',').map((x) => Number(x)),
+            ]) {
+              if (id > 0 && ships[id]) out[id] = ships[id].shipId
+            }
+            return out
+          })()
+        : undefined
 
     // 交付那一刻是最强证据：进度会被清掉，所以要在派发之前先看一眼
     if (apiPath === '/kcsapi/api_req_quest/clearitemget') {
@@ -214,7 +236,7 @@ try {
     }
 
     quiet(() => store.handle(apiPath, body, post, ts))
-    quiet(() => engine.onApi(apiPath, body, post, { destroyedSlotitems, expeditionMissionId }))
+    quiet(() => engine.onApi(apiPath, body, post, { destroyedSlotitems, expeditionMissionId, powerupShipIds }))
     replayed += 1
     if (COUNTABLE.has(apiPath)) {
       countableSeen += 1

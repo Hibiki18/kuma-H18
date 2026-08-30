@@ -7,6 +7,9 @@ const remote = require('@electron/remote')
 
 const config = remote.require('./config')
 
+// 与 webview-preload 同一份判据：游戏页面网址玩家可配，写坏了回落默认
+const { GAME_URL_CONFIG_KEY, normalizeGameUrl } = require('../../dist/shared/game-url')
+
 document.addEventListener('DOMContentLoaded', () => {
   if (config.get('kanso.dmmcookie', true) && location.hostname.includes('dmm')) {
     const now = new Date()
@@ -33,9 +36,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const ua = remote.getCurrentWebContents().session.getUserAgent()
     remote.getCurrentWebContents().session.setUserAgent(ua, 'ja-JP')
 
-    // 首次访问被丢到 /foreign/ 页面时拉回游戏首页
+    // 首次访问被丢到 /foreign/ 页面时拉回游戏首页。拉回的是**玩家配的那一条**，
+    // 不是硬写的默认值——他换了网址却被甩回 DMM，那就成了「改了没用」
     if (location.href.includes('/foreign/')) {
-      location.href = config.getDefault('kanso.homepage')
+      location.href = normalizeGameUrl(config.get(GAME_URL_CONFIG_KEY))
     }
   }
 })

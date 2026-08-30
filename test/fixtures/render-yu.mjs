@@ -126,6 +126,18 @@ const clickOn = (attrs) => ({
 })
 
 /**
+ * 在某个输入框上改完值松手（change）。钥里这些分支认的是 `input[data-xxx]`，
+ * 与点击那边的 `[data-xxx]` 不是同一种选择器，所以单独一副。
+ */
+const changeOn = (attr, value) => {
+  const key = attr.replace(/-([a-z])/g, (_m, c) => c.toUpperCase())
+  const self = { dataset: { [key]: '' }, value }
+  return {
+    closest: (selector) => (selector === `input[data-${attr}]` ? self : null),
+  }
+}
+
+/**
  * 装一次钥：桩好 electron 与 config，跑 mount，把面板交回来。
  *
  * `lodes` 那一路是**异步**的（mount 里那个 IIFE），所以刚 mount 完拿到的是加载态；
@@ -196,6 +208,14 @@ export const mountYu = ({
     click: (attrs) => {
       for (const handler of pane.handlers.get('click') ?? []) handler({ target: clickOn(attrs) })
     },
+    /** 在 `input[data-<attr>]` 上填一个值并松手 */
+    change: (attr, value) => {
+      for (const handler of pane.handlers.get('change') ?? []) {
+        handler({ target: changeOn(attr, value) })
+      }
+    },
+    /** 此刻主进程 config 里存着什么（桩里那份） */
+    configOf: (key) => configStore[key],
     writes: () => globalThis.__uiWrites,
     /** 钥调 setOverlayEntranceEnabled 的流水账（装配时一次，之后每翻一次开关一次） */
     overlayEntrance: () => globalThis.__overlayEntrance,

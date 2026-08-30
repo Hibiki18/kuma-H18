@@ -296,7 +296,7 @@ test('quest counter reports the audited synthetic-master coverage split', () => 
     // EO（quest-trackers）2026-08-21 整层退场，原来钉的 eo 163 一并撤销；
     // 它供的那 164 条现在按优先级落回 kcwiki / poi / 自研三层，
     // 所以 kcwiki 与 kanso 两栏都涨了，总数则因为「合成主数据解不出的整条弃用」而下降。
-    assert.equal(Object.keys(state.trackers).length, 249)
+    assert.equal(Object.keys(state.trackers).length, 247)
     // 2026-08-20 第二批文案清扫：逐源拆分与源站名号撤出 packCredit（那是发布侧悬停），
     // 审计本身改从 trackers 直接算——覆盖数字仍要逐源钉死，只是不再摆给玩家。
     const split = {}
@@ -305,8 +305,12 @@ test('quest counter reports the audited synthetic-master coverage split', () => 
     }
     // 2026-08-27 接上 kcwiki 的 simple/scrapship：603（原落中文散文兜底）与 609（原落 poi
     // 的 destroy_ship）改由结构化层供规则，kcwiki +2、text −1、poi −1，总数 249 不变。
-    assert.deepEqual(split, { kcwiki: 148, poi: 25, text: 19, kanso: 57 })
-    assert.match(state.packCredit, /精确计数覆盖 249 \/ 644 条/)
+    // 2026-08-30 近代化改修族：714-717 从文本兜底（都被解成「1 次就满」）改由自研层接住，
+    // text −4、kanso +4；718/719 的最上型条件要从主数据查舰级，这份十条舰的合成主数据里
+    // 没有最上，两条按纪律整条弃用（日志里那两行「艦素规则 G10/G11 跳过」），kanso −2、
+    // 总数 −2。真机主数据下这两条照常在位——见下面那组近代化改修用例，它们自带最上型。
+    assert.deepEqual(split, { kcwiki: 148, poi: 25, text: 15, kanso: 59 })
+    assert.match(state.packCredit, /精确计数覆盖 247 \/ 644 条/)
     assert.match(state.packCredit, / · 规则更新 \d{4}-\d{2}-\d{2}$/)
     assert.doesNotMatch(state.packCredit, /EO|KCWiki|poi/, '发布侧署名不该回潮')
     return
@@ -919,4 +923,174 @@ test('convertible remodels still satisfy bare-name fleet gates after reinit', ()
     delete player.ships[4001]
     engine.initQuestCounter()
   }
+})
+
+// ---- 近代化改修的精确计数（Gy1-Gy4 / G10-G11）----
+//
+// 玩家反馈（2026-08-30）：Gy1 要成功两次，kuma 一次就报满。根因是 714-717 一路掉到
+// 中文正文兜底——正文里「成功2次」与「近代化改修」不在同一小句、够不着取数窗口，
+// 四条全解成 count 1。现在改由 kanso-quest-rules 逐条接住，并按**这一次用了谁改谁**
+// 校验目标舰与素材舰。
+//
+// 报文形状取自本机账本 events 表的真实 powerup 样本（125 条形状一致）：
+// api_id = 目标舰在籍 id，api_id_items = 素材舰在籍 id 的逗号串。令牌一律打码。
+const MODERNIZATION_MASTER = [
+  // 最上型：同一舰级横跨重巡/航巡/水母/軽空母四个舰种，所以条件按 ctype 判不按 stype
+  { api_id: 70, api_name: '最上', api_stype: 5, api_ctype: 9, api_soku: 10, api_sortno: 70, api_sort_id: 1701 },
+  { api_id: 506, api_name: '最上改二特', api_stype: 16, api_ctype: 9, api_soku: 10, api_sortno: 71, api_sort_id: 1702 },
+  { api_id: 60, api_name: '重巡B', api_stype: 5, api_ctype: 40, api_soku: 10, api_sortno: 60 },
+  { api_id: 61, api_name: '航巡B', api_stype: 6, api_ctype: 41, api_soku: 10, api_sortno: 61 },
+  { api_id: 62, api_name: '軽巡B', api_stype: 3, api_ctype: 42, api_soku: 10, api_sortno: 62 },
+  { api_id: 63, api_name: '雷巡B', api_stype: 4, api_ctype: 43, api_soku: 10, api_sortno: 63 },
+  { api_id: 64, api_name: '練巡B', api_stype: 21, api_ctype: 44, api_soku: 10, api_sortno: 64 },
+]
+const MODERNIZATION_ROSTER = {
+  6000: { id: 6000, shipId: 21, lv: 30 }, // 駆逐A
+  6001: { id: 6001, shipId: 22, lv: 30 }, // 駆逐B
+  6002: { id: 6002, shipId: 23, lv: 30 }, // 駆逐C
+  6003: { id: 6003, shipId: 21, lv: 30 }, // 駆逐A（改修对象）
+  6010: { id: 6010, shipId: 20, lv: 30 }, // 軽巡A
+  6011: { id: 6011, shipId: 62, lv: 30 }, // 軽巡B
+  6012: { id: 6012, shipId: 63, lv: 30 }, // 雷巡B
+  6013: { id: 6013, shipId: 64, lv: 30 }, // 練巡B
+  6020: { id: 6020, shipId: 60, lv: 30 }, // 重巡B
+  6021: { id: 6021, shipId: 61, lv: 30 }, // 航巡B
+  6022: { id: 6022, shipId: 60, lv: 30 },
+  6023: { id: 6023, shipId: 61, lv: 30 },
+  6030: { id: 6030, shipId: 506, lv: 80 }, // 最上改二特（水母，但舰级仍是最上型）
+}
+const MODERNIZATION_QUESTS = [702, 714, 715, 716, 717, 718, 719]
+
+const withModernizationWorld = (run) => {
+  const player = globalThis.__qpStore.player
+  const originalShips = player.ships
+  player.ships = { ...originalShips, ...MODERNIZATION_ROSTER }
+  for (const no of MODERNIZATION_QUESTS) {
+    player.quests[no] = { no, state: 2, type: 1, category: 6, title: `近代化改修${no}`, progressFlag: 0 }
+  }
+  engine.initQuestCounter({
+    ...globalThis.__qpSnapshot.body,
+    api_mst_ship: [...globalThis.__qpSnapshot.body.api_mst_ship, ...MODERNIZATION_MASTER],
+  })
+  // 素材舰在真实归约里当场就被删了，任务引擎只能靠动作前这份快照——夹具照此供给。
+  const powerup = (targetId, materialIds, { flag = 1, snapshot = true } = {}) => {
+    const shipIds = {}
+    if (snapshot) {
+      for (const id of [targetId, ...materialIds]) {
+        const ship = MODERNIZATION_ROSTER[id]
+        if (ship) shipIds[id] = ship.shipId
+      }
+    }
+    engine.onQuestApi(
+      '/kcsapi/api_req_kaisou/powerup',
+      { api_powerup_flag: flag },
+      {
+        api_token: '<REDACTED>',
+        api_verno: '1',
+        api_id: `${targetId}`,
+        api_id_items: materialIds.join(','),
+        api_slot_dest_flag: '1',
+        api_limited_feed_type: '0',
+      },
+      { powerupShipIds: shipIds },
+    )
+  }
+  const state = () => globalThis.__qpHandlers['qp:get']()
+  const count = (questId) => state().progress[questId]?.[0] ?? 0
+  try {
+    run({ powerup, state, count })
+  } finally {
+    const progress = state().progress
+    for (const no of MODERNIZATION_QUESTS) {
+      delete player.quests[no]
+      delete progress[no]
+    }
+    player.ships = originalShips
+    engine.initQuestCounter()
+  }
+}
+
+test('modernization quests keep the real two-success target instead of the text fallback one', {
+  skip: !usingFullLodes,
+}, () => {
+  withModernizationWorld(({ powerup, state, count }) => {
+    const tracker = state().trackers[714]
+    assert.equal(tracker.source, 'kanso', '714 得由自研层接住，掉回正文兜底就又会变成 1 次满')
+    assert.equal(tracker.approx, false)
+    assert.equal(tracker.partial, false)
+    assert.deepEqual(
+      tracker.tasks.map((task) => [task.kind, task.action, task.count]),
+      [['action', 'powerup', 2]],
+    )
+    assert.deepEqual(
+      tracker.stockGoals.map((goal) => [goal.label, goal.count]),
+      [['钢材', 600], ['铝土', 300]],
+    )
+
+    powerup(6003, [6000, 6001, 6002])
+    assert.equal(count(714), 1)
+    powerup(6003, [6000, 6001, 6002])
+    assert.equal(count(714), 2, '两次成功才算做完，一次就满正是玩家撞到的那个 bug')
+    // 无 powerupCond 的那一族（702 Gd1「成功实施2次以上近代化改修」）口径不变：每次都算
+    assert.equal(state().trackers[702].tasks[0].powerupCond, undefined)
+    assert.equal(count(702), 2)
+  })
+})
+
+test('a modernization that misses the target or material gate counts for nothing', {
+  skip: !usingFullLodes,
+}, () => {
+  withModernizationWorld(({ powerup, count }) => {
+    powerup(6003, [6000, 6001]) // 素材只有 2 艘
+    assert.equal(count(714), 0)
+    powerup(6003, [6000, 6001, 6010]) // 第三艘是軽巡，不是驱逐
+    assert.equal(count(714), 0)
+    powerup(6010, [6000, 6001, 6002]) // 对象是軽巡，不是驱逐
+    assert.equal(count(714), 0)
+    // 715 素材写的是「軽巡洋艦」，雷巡/練巡不算——poi 那条也只编了 [3]
+    powerup(6003, [6010, 6012, 6013])
+    assert.equal(count(715), 0)
+    powerup(6003, [6010, 6011, 6010])
+    assert.equal(count(715), 1)
+    // 上面五次都是**成功**的改修，无条件那族一次不落
+    assert.equal(count(702), 2, '702 的上限是 2，五次操作照旧顶格')
+  })
+})
+
+test('a failed modernization advances nothing at all', { skip: !usingFullLodes }, () => {
+  withModernizationWorld(({ powerup, count }) => {
+    powerup(6003, [6000, 6001, 6002], { flag: 0 })
+    assert.equal(count(714), 0)
+    assert.equal(count(702), 0, 'api_powerup_flag ≠ 1 是失败，老口径本来就不计——别改回去')
+  })
+})
+
+test('unresolvable ships stop the exact counters instead of guessing', {
+  skip: !usingFullLodes,
+}, () => {
+  withModernizationWorld(({ powerup, count }) => {
+    powerup(6003, [90001, 90002, 90003], { snapshot: false }) // 素材舰查不到
+    assert.equal(count(714), 0)
+    powerup(6003, [], { snapshot: false }) // 请求里根本没有 api_id_items
+    assert.equal(count(714), 0)
+    // 判不出双方只堵带条件的那几条，不带条件的仍按老口径走
+    assert.equal(count(702), 2)
+  })
+})
+
+test('the Mogami-class gate reads the ship class, not the ship type', {
+  skip: !usingFullLodes,
+}, () => {
+  withModernizationWorld(({ powerup, count }) => {
+    // 最上改二特是**水上機母艦**（stype 16），按舰种判会漏；舰级 ctype 9 才圈得住
+    powerup(6030, [6011, 6012, 6013])
+    assert.equal(count(718), 1)
+    assert.equal(count(716), 0, '对象舰种不是「軽巡」級，Gy3 不该跟着涨')
+    // G11 素材是 4 艘「重巡」級，不是 3 艘
+    powerup(6030, [6020, 6021, 6022])
+    assert.equal(count(719), 0)
+    powerup(6030, [6020, 6021, 6022, 6023])
+    assert.equal(count(719), 1)
+    assert.equal(count(718), 1, '素材换成重巡后 G10 不再命中')
+  })
 })

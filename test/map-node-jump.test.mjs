@@ -59,7 +59,8 @@ const ENEMY_COMP_ANCHOR_ATTR: string = globalThis.__kansoJump.ENEMY_COMP_ANCHOR_
 const esc = (s: unknown) => \`\${s ?? ''}\`.replace(/[&<>"']/g, (c) => \`&#\${c.charCodeAt(0)};\`)
 
 export const buildNodes = (
-  spots: any, battlesAt: any, bossLetters: any, jumpNodes: any, S: number, R: number, FS: number,
+  spots: any, battlesAt: any, bossLetters: any, targetLetter: any, jumpNodes: any,
+  S: number, R: number, FS: number,
 ) => {
 ${NODE_BLOCK}
   return nodes
@@ -123,6 +124,7 @@ test('可跳的点位带标记与手势类，没落点的点位两样都不带',
     { A: [10, 20, 'start'], B: [30, 40, ''], C: [50, 60, ''] },
     new Map([['B', 3]]),
     new Set(['C']),
+    null, // 目标点与可跳判据无关，这一组不选
     new Set(['B', 'C']), // A 是出击起点，下面没有它的敌编成
     1,
     12,
@@ -155,8 +157,33 @@ test('小节的锚就是点击时要找的那一个：属性名与点位名两�
   assert.ok(row.includes('<span class="rt-from">Z1</span>'))
 
   // 图上那一端用的是同一个点位名
-  const svg = harness.buildNodes({ Z1: [1, 2, ''] }, new Map(), new Set(), new Set(['Z1']), 1, 12, 11)
+  const svg = harness.buildNodes(
+    { Z1: [1, 2, ''] }, new Map(), new Set(), null, new Set(['Z1']), 1, 12, 11,
+  )
   assert.ok(svg.includes(`${MAP_NODE_JUMP_ATTR}="Z1"`))
+})
+
+test('目标点只多描一道亮圈：Boss 圈仍是「你打过 Boss」那个历史事实', () => {
+  // 两个概念分开：G 是打过的 Boss，玩家把目标点选在 B（捞船党故意停在别处）
+  const svg = harness.buildNodes(
+    { A: [10, 20, 'start'], B: [30, 40, ''], G: [50, 60, ''] },
+    new Map([['G', 4]]),
+    new Set(['G']),
+    'B',
+    new Set(['B', 'G']),
+    1,
+    12,
+    11,
+  )
+  const groups = groupsByLetter(svg)
+  assert.match(groups.get('B'), /class="[^"]*\bmg-target\b/, '目标点该带高亮类')
+  assert.doesNotMatch(groups.get('B'), /class="[^"]*\bboss\b/, '目标点不该被说成 Boss')
+  assert.match(groups.get('G'), /class="[^"]*\bboss\b/, 'Boss 圈照旧按你的记录标')
+  assert.doesNotMatch(groups.get('G'), /\bmg-target\b/)
+  // 点击语义两端都没动
+  for (const letter of ['B', 'G']) {
+    assert.ok(groups.get(letter).includes(`${MAP_NODE_JUMP_ATTR}="${letter}"`))
+  }
 })
 
 test('点位名里的引号不会把选择器拼断——拼断是一次崩溃，不是一次跳不动', () => {

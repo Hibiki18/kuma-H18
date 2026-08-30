@@ -14,7 +14,7 @@ const client = fs.readFileSync(path.join(root, 'src/renderer/game-window-client.
 test('only the host surface can attach a webview and the workbench disables webviewTag', () => {
   assert.match(main, /view\.webContents\.on\('will-attach-webview'/)
   assert.match(main, /path\.resolve\(preload\).*trustedWebviewPreload/s)
-  assert.match(main, /new URL\(params\.src\)\.href === new URL\(String\(config\.get\('kanso\.homepage'\)\)\)\.href/)
+  assert.match(main, /new URL\(params\.src\)\.href === new URL\(normalizeGameUrl\(config\.get\(GAME_URL_CONFIG_KEY\)\)\)\.href/)
   assert.match(main, /preferences\.nodeIntegration = false/)
   assert.match(workbench, /webviewTag: false/)
 })

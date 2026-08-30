@@ -193,6 +193,7 @@ export const publishGameToast = (
     title: event.title,
     detail: event.detail,
     locked: event.locked,
+    corner: event.corner,
     groupKey: event.groupKey,
     groupTitle: event.groupTitle,
     count: event.count,
